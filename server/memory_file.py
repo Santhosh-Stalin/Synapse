@@ -55,12 +55,15 @@ def _normalize_frontmatter(fm: dict[str, Any]) -> dict[str, Any]:
 
 
 def parse_memory_text(text: str) -> tuple[dict[str, Any], str]:
-    if not text.startswith("---\n"):
-        return {}, text.strip()
+    if not text or not text.startswith("---\n"):
+        return {}, text.strip() if text else ""
     parts = text.split("---", 2)
     if len(parts) < 3:
         return {}, text.strip()
-    frontmatter = _normalize_frontmatter(yaml.safe_load(parts[1]) or {})
+    try:
+        frontmatter = _normalize_frontmatter(yaml.safe_load(parts[1]) or {})
+    except yaml.YAMLError:
+        frontmatter = {}
     return frontmatter, parts[2].strip()
 
 
