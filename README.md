@@ -264,6 +264,13 @@ Open `vault/` as an Obsidian vault. Run `memory_organize()` then `memory_relink_
 
 ## Troubleshooting
 
+**`No module named 'server.embeddings'`** — pull the latest and reinstall:
+```bash
+git pull
+pip install -r requirements.txt
+```
+Then restart Claude Desktop and run `memory_rebuild_index()`.
+
 **Tools don't appear in Claude Desktop** — restart after editing MCP config. Validate JSON syntax. Python path must point to `.venv`, not system Python.
 
 **`gemini_api_key required`**
