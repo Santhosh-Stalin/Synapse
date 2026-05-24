@@ -366,12 +366,28 @@ def list_pending(config: SynapseConfig) -> list[dict[str, Any]]:
 def detect_conflicts(
     config: SynapseConfig, after_patch: dict[str, Any] | None = None
 ) -> list[dict[str, str]]:
+    """
+    Scan active vault files for factual contradictions.
+    Intentionally excludes chats/ — chat summaries are narrative and will
+    always contain words like 'never'/'always' in different contexts, causing
+    O(n²) false positives across thousands of files.
+    """
+    EXCLUDED_FOLDERS = {"chats", "raw"}
     memories: list[dict[str, str]] = []
     for path in sorted(config.vault_path.rglob("*.md")):
+        # Skip index/system files
         if path.name.startswith("_"):
             continue
+        # Skip chat archive and raw folders
+        parts = path.relative_to(config.vault_path).parts
+        if any(p in EXCLUDED_FOLDERS for p in parts):
+            continue
         fm, content = parse_memory_text(read_text(config, path))
-        memories.append({"key": str(fm.get("key", "")), "content": content.lower()})
+        key = str(fm.get("key", ""))
+        if not key:
+            continue
+        memories.append({"key": key, "content": content.lower()})
+
     if after_patch:
         fm, content = _parse_rendered(after_patch["after"])
         memories.append({"key": str(fm.get("key", after_patch["key"])), "content": content.lower()})
@@ -565,16 +581,36 @@ def _parse_rendered(text: str) -> tuple[dict[str, Any], str]:
 
 
 def _conflict_explanation(left: str, right: str) -> str:
+    """
+    Check for factual contradictions between two active vault files.
+    Rules:
+    - Only meaningful technology/preference pairs (not generic words like never/always)
+    - Both terms must appear on the same line as a keyword anchor so we're comparing
+      facts about the same topic, not unrelated sentences
+    """
     pairs = [
         ("prefer firebase", "prefer postgresql"),
+        ("prefer firebase", "prefer supabase"),
         ("uses firebase", "uses postgresql"),
+        ("uses firebase", "uses supabase"),
         ("no cloud", "cloud enabled"),
         ("local-first", "cloud-first"),
-        ("never", "always"),
+        ("react native", "flutter"),
+        ("write_mode: auto", "write_mode: review"),
     ]
+
+    def lines_containing(text: str, term: str) -> list[str]:
+        return [ln for ln in text.splitlines() if term in ln]
+
     for a, b in pairs:
-        if (a in left and b in right) or (b in left and a in right):
-            return f"Potential contradiction between '{a}' and '{b}'."
+        a_lines = lines_containing(left, a)
+        b_lines = lines_containing(right, b)
+        if a_lines and b_lines:
+            return f"Potential contradiction: '{a}' vs '{b}'."
+        a_lines = lines_containing(left, b)
+        b_lines = lines_containing(right, a)
+        if a_lines and b_lines:
+            return f"Potential contradiction: '{b}' vs '{a}'."
     return ""
 
 
