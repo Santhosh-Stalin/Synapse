@@ -1,10 +1,11 @@
 """
 Structural code graph extractor.
-Parses Python (AST) and TypeScript/JS (regex) to produce:
+Parses Python (AST), TypeScript/JS, Go, and Rust (regex) to produce:
   - file nodes
   - function/class nodes with source body
   - edges: contains | imports_from | calls | exports
 No LLM required. Pure static analysis.
+Supported: .py (AST), .ts/.tsx/.js/.jsx/.cjs/.mjs (regex), .go (regex), .rs (regex)
 """
 
 from __future__ import annotations
@@ -45,6 +46,10 @@ def extract_code_graph(files: dict[str, str]) -> dict[str, Any]:
             _extract_python(file_id, rel_path, content, nodes, edges, node_ids)
         elif ext in {".ts", ".tsx", ".js", ".jsx", ".cjs", ".mjs"}:
             _extract_typescript(file_id, rel_path, content, nodes, edges, node_ids)
+        elif ext == ".go":
+            _extract_go(file_id, rel_path, content, nodes, edges, node_ids)
+        elif ext == ".rs":
+            _extract_rust(file_id, rel_path, content, nodes, edges, node_ids)
 
     # Build a set of all known node IDs for edge filtering
     known_ids = {n["id"] for n in nodes}
@@ -244,8 +249,10 @@ def _name_to_slug(name: str) -> str:
 
 # Named function declarations (exported or not)
 _TS_FN = re.compile(r"""(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*[(<]""")
-# Arrow / const exports: export const foo = ..., export const foo: Type = ...
-_TS_ARROW = re.compile(r"""export\s+(?:const|let|var)\s+(\w+)(?:\s*:\s*[\w<>\[\]|&]+)?\s*[=]""")
+# Arrow / const exports: export const foo = ..., export const foo: React.FC = ...
+_TS_ARROW = re.compile(r"""export\s+(?:const|let|var)\s+(\w+)(?:\s*:\s*[\w<>\[\]|&., ]+)?\s*[=]""")
+# Non-exported const/let arrow functions: const handleKey = (key: string) => ...
+_TS_CONST_FN = re.compile(r"""(?:^|\n)\s*(?:const|let)\s+(\w+)\s*(?::\s*[\w<>\[\]|&., ]+)?\s*=\s*(?:async\s+)?\(""")
 # Class declarations
 _TS_CLASS = re.compile(r"""(?:export\s+)?(?:abstract\s+)?class\s+(\w+)""")
 # Default export function
@@ -326,6 +333,14 @@ def _extract_typescript(
                 file_id, rel_path, content, name, "function", m.start(), nodes, edges, node_ids
             )
 
+    # --- non-exported const arrow functions ---
+    for m in _TS_CONST_FN.finditer(content):
+        name = m.group(1)
+        if name not in _SKIP_KW:
+            _add_ts_node(
+                file_id, rel_path, content, name, "function", m.start(), nodes, edges, node_ids
+            )
+
     # --- classes ---
     for m in _TS_CLASS.finditer(content):
         cls_name = m.group(1)
@@ -395,3 +410,183 @@ def _extract_ts_body(content: str, start: int) -> str:
             if depth == 0:
                 return content[start : i + 1]
     return content[start : brace_start + 500]
+
+
+# ---------------------------------------------------------------------------
+# Go extractor (regex-based)
+# ---------------------------------------------------------------------------
+
+# func Name(...) or func (recv *Type) Name(...)
+_GO_FN = re.compile(r"""func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)\s*\(""")
+# type Name struct { ... }
+_GO_STRUCT = re.compile(r"""type\s+(\w+)\s+struct\s*\{""")
+# import "pkg" or import ( "pkg" )
+_GO_IMPORT = re.compile(r'''import\s+(?:\w+\s+)?["']([^"']+)["']''')
+
+
+def _extract_go(
+    file_id: str,
+    rel_path: str,
+    content: str,
+    nodes: list,
+    edges: list,
+    node_ids: set,
+) -> None:
+    _SKIP = {"init", "main", "String", "Error"}
+
+    # imports
+    for m in _GO_IMPORT.finditer(content):
+        mod_id = m.group(1).replace("/", "-").replace("_", "-").lower()
+        mod_id = re.sub(r"-+", "-", mod_id).strip("-")
+        edges.append({"source": file_id, "target": mod_id, "relation": "imports_from"})
+
+    # structs
+    for m in _GO_STRUCT.finditer(content):
+        name = m.group(1)
+        slug = _name_to_slug(name)
+        node_id = f"{file_id}-{slug}"
+        if node_id in node_ids:
+            continue
+        lineno = content[: m.start()].count("\n") + 1
+        body = _extract_ts_body(content, m.start())
+        nodes.append(
+            {
+                "id": node_id,
+                "label": name,
+                "file": rel_path,
+                "type": "class",
+                "parent": file_id,
+                "source": body[:3000],
+                "lineno": lineno,
+            }
+        )
+        node_ids.add(node_id)
+        edges.append({"source": file_id, "target": node_id, "relation": "contains"})
+
+    # functions
+    for m in _GO_FN.finditer(content):
+        name = m.group(1)
+        if name in _SKIP:
+            continue
+        slug = _name_to_slug(name)
+        node_id = f"{file_id}-{slug}"
+        if node_id in node_ids:
+            continue
+        lineno = content[: m.start()].count("\n") + 1
+        body = _extract_ts_body(content, m.start())
+        nodes.append(
+            {
+                "id": node_id,
+                "label": f"{name}()",
+                "file": rel_path,
+                "type": "function",
+                "parent": file_id,
+                "source": body[:3000],
+                "lineno": lineno,
+            }
+        )
+        node_ids.add(node_id)
+        edges.append({"source": file_id, "target": node_id, "relation": "contains"})
+
+
+# ---------------------------------------------------------------------------
+# Rust extractor (regex-based)
+# ---------------------------------------------------------------------------
+
+# pub fn name<...>( or fn name(
+_RS_FN = re.compile(r"""(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*[<(]""")
+# pub struct Name or struct Name
+_RS_STRUCT = re.compile(r"""(?:pub\s+)?struct\s+(\w+)""")
+# pub enum Name or enum Name
+_RS_ENUM = re.compile(r"""(?:pub\s+)?enum\s+(\w+)""")
+# use path::to::module;
+_RS_USE = re.compile(r"""use\s+([\w:]+)""")
+
+
+def _extract_rust(
+    file_id: str,
+    rel_path: str,
+    content: str,
+    nodes: list,
+    edges: list,
+    node_ids: set,
+) -> None:
+    _SKIP = {"new", "fmt", "from", "into", "default", "clone", "drop"}
+
+    # imports
+    for m in _RS_USE.finditer(content):
+        raw = m.group(1)
+        mod_id = raw.replace("::", "-").replace("_", "-").lower()
+        mod_id = re.sub(r"-+", "-", mod_id).strip("-")
+        edges.append({"source": file_id, "target": mod_id, "relation": "imports_from"})
+
+    # structs
+    for m in _RS_STRUCT.finditer(content):
+        name = m.group(1)
+        slug = _name_to_slug(name)
+        node_id = f"{file_id}-{slug}"
+        if node_id in node_ids:
+            continue
+        lineno = content[: m.start()].count("\n") + 1
+        body = _extract_ts_body(content, m.start())
+        nodes.append(
+            {
+                "id": node_id,
+                "label": name,
+                "file": rel_path,
+                "type": "class",
+                "parent": file_id,
+                "source": body[:3000],
+                "lineno": lineno,
+            }
+        )
+        node_ids.add(node_id)
+        edges.append({"source": file_id, "target": node_id, "relation": "contains"})
+
+    # enums
+    for m in _RS_ENUM.finditer(content):
+        name = m.group(1)
+        slug = _name_to_slug(name)
+        node_id = f"{file_id}-{slug}"
+        if node_id in node_ids:
+            continue
+        lineno = content[: m.start()].count("\n") + 1
+        body = _extract_ts_body(content, m.start())
+        nodes.append(
+            {
+                "id": node_id,
+                "label": name,
+                "file": rel_path,
+                "type": "class",
+                "parent": file_id,
+                "source": body[:3000],
+                "lineno": lineno,
+            }
+        )
+        node_ids.add(node_id)
+        edges.append({"source": file_id, "target": node_id, "relation": "contains"})
+
+    # functions
+    for m in _RS_FN.finditer(content):
+        name = m.group(1)
+        if name in _SKIP:
+            continue
+        slug = _name_to_slug(name)
+        node_id = f"{file_id}-{slug}"
+        if node_id in node_ids:
+            continue
+        lineno = content[: m.start()].count("\n") + 1
+        body = _extract_ts_body(content, m.start())
+        nodes.append(
+            {
+                "id": node_id,
+                "label": f"{name}()",
+                "file": rel_path,
+                "type": "function",
+                "parent": file_id,
+                "source": body[:3000],
+                "lineno": lineno,
+            }
+        )
+        node_ids.add(node_id)
+        edges.append({"source": file_id, "target": node_id, "relation": "contains"})
