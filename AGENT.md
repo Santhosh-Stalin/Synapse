@@ -9,10 +9,14 @@ Synapse is a persistent, structured memory system for Claude. It stores memories
 **Call `memory_auto(task)` for any retrieval question** — it loads context, searches the active vault, and escalates to deep search automatically. You do not need to chain `memory_context → memory_search → memory_deep_search` manually; `memory_auto` does it for you.
 
 For write operations use **`memory_commit(patch)`** — behaviour depends on `write_mode` in config:
-- `review` (default) — proposes a diff the user must approve before anything is written
-- `auto` — applies immediately with no confirmation
 
-Check the mode in the context response. In `review` mode, always show the diff and wait. In `auto` mode, write and confirm what was saved.
+| Mode | What Claude must do |
+|------|---------------------|
+| `manual` (default) | Show the diff for **each** write and ask "Save this? (yes/no)" before calling `memory_commit`. Never write silently. |
+| `bulk` | Queue all proposed changes silently during the conversation. When the user says "save" / "commit" / "done", show **all** pending diffs at once and ask for a single yes/no approval, then call `memory_commit` for each approved patch. |
+| `auto` | Call `memory_commit` immediately. No confirmation. Briefly confirm what was saved (one line). |
+
+Check the mode in the context response (`_config.write_mode`). If the field is missing, treat it as `manual`.
 
 If `_vault_health.clean` is False in the context response, flag it and offer to run `memory_deduplicate(auto_clean=True)`.
 

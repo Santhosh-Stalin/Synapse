@@ -2,7 +2,11 @@ vault_path: ./vault
 git_enabled: true
 encryption: false
 cloud_search: false
-write_mode: review
+# write_mode controls how Claude handles memory writes:
+#   manual — Claude asks before each individual write (show diff, wait for yes/no)
+#   bulk   — Claude queues all changes silently, then asks to review everything at once
+#   auto   — Claude writes directly, no confirmation needed
+write_mode: manual
 gemini_api_key: ""
 pending_auto_expire_days: 7
 raw_archive_path: ./synapse_extracted

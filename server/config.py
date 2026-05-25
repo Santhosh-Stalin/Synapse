@@ -37,7 +37,7 @@ class SynapseConfig:
     gemini_api_key: str = ""
     groq_api_key: str = ""
     cerebras_api_key: str = ""
-    write_mode: str = "review"
+    write_mode: str = "manual"  # manual | bulk | auto
 
 
 def load_config(config_path: Path | None = None) -> SynapseConfig:
@@ -79,7 +79,7 @@ def load_config(config_path: Path | None = None) -> SynapseConfig:
         gemini_api_key=gemini_key,
         groq_api_key=groq_key,
         cerebras_api_key=cerebras_key,
-        write_mode=str(values.get("write_mode", "review")),
+        write_mode=str(values.get("write_mode", "manual")),
     )
 
 

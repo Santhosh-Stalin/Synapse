@@ -364,13 +364,15 @@ class StepConfig(Step):
         tk.Frame(self, bg=BG, height=16).pack()
 
         label(self, "Write mode", fg=FG).pack(anchor="w", pady=(0, 6))
-        self.mode_var = tk.StringVar(value="review")
+        self.mode_var = tk.StringVar(value="manual")
 
         for val, title, desc in [
-            ("review", "Review  (recommended)",
-             "Claude proposes a diff — you approve before anything is written."),
+            ("manual", "Manual  (recommended)",
+             "Claude shows each diff and asks you before writing — full control, one write at a time."),
+            ("bulk", "Bulk",
+             "Claude queues all changes silently, then shows everything at once for a single yes/no review."),
             ("auto", "Auto",
-             "Claude writes directly, no confirmation needed."),
+             "Claude writes directly, no confirmation needed. Fastest, least friction."),
         ]:
             rb_frame = tk.Frame(self, bg="#111111", bd=0,
                                 highlightbackground=BORDER, highlightthickness=1)
