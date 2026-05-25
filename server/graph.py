@@ -252,7 +252,11 @@ _TS_FN = re.compile(r"""(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*[(<]""")
 # Arrow / const exports: export const foo = ..., export const foo: React.FC = ...
 _TS_ARROW = re.compile(r"""export\s+(?:const|let|var)\s+(\w+)(?:\s*:\s*[\w<>\[\]|&., ]+)?\s*[=]""")
 # Non-exported const/let arrow functions: const handleKey = (key: string) => ...
-_TS_CONST_FN = re.compile(r"""(?:^|\n)\s*(?:const|let)\s+(\w+)\s*(?::\s*[\w<>\[\]|&., ]+)?\s*=\s*(?:async\s+)?\(""")
+# re.MULTILINE so ^ anchors at each line start — m.start() lands on the line itself, not the preceding \n
+_TS_CONST_FN = re.compile(
+    r"""^[ \t]*(?:const|let)\s+(\w+)\s*(?::\s*[\w<>\[\]|&., ]+)?\s*=\s*(?:async\s+)?\(""",
+    re.MULTILINE,
+)
 # Class declarations
 _TS_CLASS = re.compile(r"""(?:export\s+)?(?:abstract\s+)?class\s+(\w+)""")
 # Default export function
@@ -397,20 +401,97 @@ def _add_ts_node(
     edges.append({"source": file_id, "target": node_id, "relation": relation})
 
 
+def _find_opening_brace(content: str, start: int) -> int:
+    """
+    Scan the signature line(s) starting at `start` and return the position of
+    the opening { that begins this function's body.  Returns -1 when:
+      - an => appears before any { on the same statement (expression-body arrow)
+      - a blank line or same-indent definition appears before any {
+    Scans at most 10 lines so we don't bleed into the next function.
+    """
+    lines = content[start:].splitlines(keepends=True)
+    if not lines:
+        return -1
+    base_indent = len(lines[0]) - len(lines[0].lstrip())
+    pos = start
+    for i, line in enumerate(lines[:10]):
+        # First { wins — that's the body opener
+        if "{" in line:
+            return pos + line.index("{")
+        # => without { on the same line → expression body (const f = x => x*2)
+        if "=>" in line:
+            return -1
+        pos += len(line)
+        # After the opening line: a blank line or a non-indented definition
+        # means the signature ended without a body (type alias, interface, etc.)
+        if i > 0:
+            stripped = line.lstrip()
+            if not stripped:
+                return -1  # blank line — end of statement
+            if len(line) - len(stripped) <= base_indent and stripped:
+                return -1  # back to same indent — new definition
+    return -1
+
+
 def _extract_ts_body(content: str, start: int) -> str:
-    """Find the opening brace after start and extract the balanced block."""
-    brace_start = content.find("{", start)
+    """
+    Find the opening brace after start and extract the balanced block.
+    Falls back to _estimate_body_end() when:
+      - no opening brace exists (expression-body arrow fns, interfaces)
+      - brace never closes within the scan window (very long functions)
+    """
+    # Find the opening brace by scanning the signature line(s) only.
+    # Stops as soon as it knows what kind of construct this is:
+    #   hits "{"         → brace-body (regular fn or brace-arrow)
+    #   hits "=>" sans { → expression-body arrow (const f = x => x * 2)
+    #   hits blank line  → end of signature, no body found
+    brace_start = _find_opening_brace(content, start)
     if brace_start == -1:
-        return content[start : start + 500]
+        return content[start : _estimate_body_end(content, start)]
     depth = 0
-    for i in range(brace_start, min(len(content), brace_start + 8000)):
+    for i in range(brace_start, len(content)):
         if content[i] == "{":
             depth += 1
         elif content[i] == "}":
             depth -= 1
             if depth == 0:
                 return content[start : i + 1]
-    return content[start : brace_start + 500]
+    # Brace opened but never closed (truncated file or parse error)
+    return content[start : _estimate_body_end(content, start)]
+
+
+def _estimate_body_end(content: str, start: int) -> int:
+    """
+    Rough estimator: scan forward from start and stop at the first line that
+    looks like a new top-level definition at the same or lower indentation,
+    or after MAX_LINES lines, whichever comes first.
+    """
+    MAX_LINES = 60
+    # Patterns that signal a new top-level construct
+    _TOP_DEF = re.compile(
+        r"""^(?:export\s+)?(?:default\s+)?(?:async\s+)?"""
+        r"""(?:function|class|const|let|var|type|interface|enum|"""
+        r"""fn|pub\s+fn|pub\s+struct|pub\s+enum|struct|func)\s""",
+        re.MULTILINE,
+    )
+    lines = content[start:].splitlines(keepends=True)
+    if not lines:
+        return start
+    # Determine base indentation from the first non-empty line
+    base_indent = len(lines[0]) - len(lines[0].lstrip())
+    # pos always points to the end of the last line we're keeping
+    # Start by including lines[0] (the definition line itself)
+    pos = start + len(lines[0])
+    for i, line in enumerate(lines[1:], 1):
+        if i >= MAX_LINES:
+            break
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        # A non-blank line at same or lower indent that starts a new definition
+        if stripped and indent <= base_indent and _TOP_DEF.match(stripped):
+            break
+        pos += len(line)
+    return min(pos, start + 3000)
 
 
 # ---------------------------------------------------------------------------
