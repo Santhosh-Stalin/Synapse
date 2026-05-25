@@ -86,12 +86,21 @@ PRIORITY_PATTERNS = [
 ]
 SOURCE_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java", ".cs"}
 EXTENDED_CODE_EXTENSIONS = {
+    # JavaScript / TypeScript
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".mjs",
+    ".cjs",
+    # C / C++
     ".cpp",
     ".cc",
     ".cxx",
     ".c",
     ".h",
     ".hpp",
+    # Other languages
     ".rb",
     ".php",
     ".swift",
