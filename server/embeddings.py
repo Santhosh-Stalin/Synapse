@@ -107,6 +107,10 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (mag_a * mag_b)
 
 
+# Public alias used by merger.py
+cosine_similarity = _cosine
+
+
 def semantic_search(
     api_key: str,
     db_path: Path,
