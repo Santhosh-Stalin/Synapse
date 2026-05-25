@@ -389,6 +389,7 @@ def _add_ts_node(
             "parent": file_id,
             "source": body[:3000],
             "lineno": lineno,
+            "lineno_end": lineno + body.count("\n"),
         }
     )
     node_ids.add(node_id)
@@ -458,6 +459,7 @@ def _extract_go(
                 "parent": file_id,
                 "source": body[:3000],
                 "lineno": lineno,
+                "lineno_end": lineno + body.count("\n"),
             }
         )
         node_ids.add(node_id)
@@ -483,6 +485,7 @@ def _extract_go(
                 "parent": file_id,
                 "source": body[:3000],
                 "lineno": lineno,
+                "lineno_end": lineno + body.count("\n"),
             }
         )
         node_ids.add(node_id)
@@ -538,6 +541,7 @@ def _extract_rust(
                 "parent": file_id,
                 "source": body[:3000],
                 "lineno": lineno,
+                "lineno_end": lineno + body.count("\n"),
             }
         )
         node_ids.add(node_id)
@@ -561,6 +565,7 @@ def _extract_rust(
                 "parent": file_id,
                 "source": body[:3000],
                 "lineno": lineno,
+                "lineno_end": lineno + body.count("\n"),
             }
         )
         node_ids.add(node_id)
@@ -586,6 +591,7 @@ def _extract_rust(
                 "parent": file_id,
                 "source": body[:3000],
                 "lineno": lineno,
+                "lineno_end": lineno + body.count("\n"),
             }
         )
         node_ids.add(node_id)
