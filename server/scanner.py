@@ -653,6 +653,11 @@ def _make_function_proposals(
             lines.append(f"\n{doc}")
         lines.append(f"\nDefined in `{rel_file}` at line {lineno}.")
 
+        # Wikilinks so Obsidian graph view shows edges between nodes
+        # related keys use dot notation; Obsidian needs path-style [[folder/file]]
+        wikilinks = [_key_to_wikilink(k) for k in related]
+        lines.append("\nRelated: " + " | ".join(f"[[{w}]]" for w in wikilinks))
+
         proposals.append(
             {
                 "key": vault_key,
@@ -667,6 +672,13 @@ def _make_function_proposals(
         )
 
     return proposals
+
+
+def _key_to_wikilink(key: str) -> str:
+    """Convert a dot-notation vault key to an Obsidian wikilink path.
+    e.g. 'projects.calculator.calc.add' -> 'projects/calculator/calc/add'
+    """
+    return key.replace(".", "/")
 
 
 def _is_vague(description: str, signature: str) -> bool:

@@ -235,13 +235,16 @@ def _refresh_related(
                 triggers = new_triggers
                 changed = True
 
-        computed = _compute_related(config.vault_path, key, triggers)
-        if set(computed) != set(raw_related):
-            frontmatter["related"] = computed
-            changed = True
-        elif raw_related != frontmatter.get("related", []):
-            frontmatter["related"] = raw_related
-            changed = True
+        # Code nodes (type: code) have their related set by the scanner from real
+        # call-graph edges — don't overwrite with trigger-based vault graph lookup.
+        if frontmatter.get("type") != "code":
+            computed = _compute_related(config.vault_path, key, triggers)
+            if set(computed) != set(raw_related):
+                frontmatter["related"] = computed
+                changed = True
+            elif raw_related != frontmatter.get("related", []):
+                frontmatter["related"] = raw_related
+                changed = True
 
         # Always re-inject wikilinks so Obsidian graph shows edges
         effective_related = frontmatter.get("related", [])
@@ -499,6 +502,10 @@ def _build_after_text(config: SynapseConfig, patch: dict[str, Any]) -> str:
         frontmatter, existing_content = read_memory_file(path)
         frontmatter = dict(frontmatter)
         frontmatter.update(patch.get("frontmatter", {}))
+        # Top-level 'related' in the patch overrides the stored one so that
+        # code-graph call edges and scanner-provided links are not lost on updates.
+        if patch.get("related"):
+            frontmatter["related"] = list(patch["related"])
         frontmatter["version"] = int(frontmatter.get("version", 0)) + 1
         frontmatter["last_updated"] = datetime.now().date().isoformat()
         content = str(patch.get("content", existing_content)).strip()
