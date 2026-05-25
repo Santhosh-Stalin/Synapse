@@ -93,6 +93,14 @@ EXTENDED_CODE_EXTENSIONS = {
     ".tsx",
     ".mjs",
     ".cjs",
+    # Styles
+    ".css",
+    ".scss",
+    ".sass",
+    # Systems / backend
+    ".go",
+    ".rs",
+    ".java",
     # C / C++
     ".cpp",
     ".cc",
