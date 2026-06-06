@@ -237,7 +237,8 @@ Related: [[work/python]] | [[projects/ctf_entrypoint]]
 | Tool | Use |
 |---|---|
 | `memory_import_ai_export(path)` | Import Claude.ai or ChatGPT export |
-| `memory_import_filtered_jsonl(path)` | Import pre-filtered JSONL |
+| `memory_triage(input_folder)` | AI triage — filter conversations into keep/skip/redflag before import. Needs `OPENROUTER_API_KEY` + `GROQ_API_KEY` |
+| `memory_import_filtered_jsonl(path)` | Import kept chats from `memory_triage` output |
 | `memory_import_synapse_summaries(path)` | Import pre-processed summary JSON (no LLM) |
 | `memory_ingest_text(text)` | Extract patches from any pasted text |
 | `memory_save_chat(...)` | Save a structured chat summary to vault |

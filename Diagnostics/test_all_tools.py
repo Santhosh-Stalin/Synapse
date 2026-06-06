@@ -27,6 +27,7 @@ from server.functions import (
     memory_build_graph, memory_deep_search,
     memory_code_search, memory_code_stats,
     memory_save_chat, memory_auto, memory_commit,
+    memory_triage,
 )
 
 PASS = "\033[92mPASS\033[0m"
@@ -427,6 +428,14 @@ try:
     check("Search with no match returns []", hits == [])
 except Exception as e:
     check("Search no match", False, str(e))
+
+section("28. memory_triage (no keys → error dict)")
+try:
+    r = memory_triage(cfg(), input_folder=str(tmp))
+    check("Returns dict",              isinstance(r, dict))
+    check("Has error key (no OR key)", "error" in r)
+except Exception as e:
+    check("memory_triage no-key graceful", False, str(e))
 
 # ── Final summary ─────────────────────────────────────────────────────────────
 shutil.rmtree(tmp, ignore_errors=True)

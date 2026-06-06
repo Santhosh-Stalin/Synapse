@@ -32,6 +32,7 @@ from .raw_archive import (
     search_raw_index as _search_raw_index,
 )
 from .merger import smart_merge_duplicates as _smart_merge
+from .triage import run_triage as _run_triage
 from .scanner import scan_and_extract
 from .search import memory_search
 
@@ -443,6 +444,45 @@ def memory_commit(config: SynapseConfig, patch: dict[str, Any]) -> dict[str, Any
     if not patch_id:
         return proposed
     return memory_apply_update(config, patch_id)
+
+
+def memory_triage(
+    config: SynapseConfig,
+    input_folder: str,
+    output_folder: str = "",
+    force_review: bool = False,
+    openrouter_model: str = "",
+    groq_model: str = "",
+    workers: int = 3,
+) -> dict[str, Any]:
+    """Run the AI triage pipeline on a conversations_jsonl folder."""
+    import os
+
+    or_key = os.environ.get("OPENROUTER_API_KEY", "")
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+
+    if not or_key:
+        return {"error": "OPENROUTER_API_KEY not set. Add it to your .env file."}
+    if not groq_key:
+        return {"error": "GROQ_API_KEY not set. Add it to your .env file."}
+
+    out = output_folder or str(config.root_path / "synapse_filtered_chats")
+
+    kwargs: dict[str, Any] = {}
+    if openrouter_model:
+        kwargs["openrouter_model"] = openrouter_model
+    if groq_model:
+        kwargs["groq_model"] = groq_model
+
+    return _run_triage(
+        input_folder=input_folder,
+        output_folder=out,
+        openrouter_api_key=or_key,
+        groq_api_key=groq_key,
+        force_review=force_review,
+        workers=workers,
+        **kwargs,
+    )
 
 
 def rebuild_index(config: SynapseConfig) -> dict[str, str]:

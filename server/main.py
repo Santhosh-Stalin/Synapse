@@ -43,6 +43,7 @@ from .functions import (
     memory_start_watcher,
     memory_stop_watcher,
     memory_tree,
+    memory_triage,
     memory_watcher_status,
     rebuild_index,
 )
@@ -279,6 +280,19 @@ def save_chat(
         categories=categories or None,
         chat_id=chat_id or None,
     )
+
+
+@app.tool(name="memory_triage")
+def triage(
+    input_folder: str,
+    output_folder: str = "",
+    force_review: bool = False,
+    openrouter_model: str = "",
+    groq_model: str = "",
+    workers: int = 3,
+) -> dict:
+    """AI-powered chat triage pipeline. Reads conversations_jsonl from input_folder, sends each to OpenRouter (Groq fallback) to decide keep_full/keep_short/skip/redflag_*, and writes filtered JSONL ready for memory_import_filtered_jsonl. Requires OPENROUTER_API_KEY and GROQ_API_KEY in .env. output_folder defaults to synapse_filtered_chats/ in the Synapse root."""
+    return memory_triage(config, input_folder, output_folder, force_review, openrouter_model, groq_model, workers)
 
 
 @app.tool(name="memory_auto")

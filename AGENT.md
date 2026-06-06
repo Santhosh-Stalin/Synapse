@@ -129,11 +129,24 @@ Each active vault file has YAML frontmatter (`key`, `type`, `triggers`, `related
 ### Import & ingestion
 | Tool | When |
 |---|---|
-| `memory_import_ai_export("path")` | Import Claude.ai or ChatGPT data export. |
-| `memory_import_filtered_jsonl("path")` | Import pre-filtered JSONL conversation folder. |
+| `memory_import_ai_export("path")` | Import Claude.ai or ChatGPT data export (Gemini extracts patches). |
+| `memory_triage(input_folder)` | AI triage pipeline — filters a conversations_jsonl folder into keep/skip/redflag buckets using OpenRouter + Groq. Run **before** `memory_import_filtered_jsonl`. Requires `OPENROUTER_API_KEY` + `GROQ_API_KEY` in `.env`. |
+| `memory_import_filtered_jsonl("path")` | Import the kept chats from `memory_triage` output. Pass the `filtered_jsonl_folder` value returned by triage. |
 | `memory_import_synapse_summaries("path")` | Import synapse_ai_summaries JSON folder. No LLM needed. |
 | `memory_ingest_text(text)` | Paste raw text — Gemini extracts patches from it. |
 | `memory_save_chat(title, summary, ...)` | Save a structured chat summary to vault/chats. |
+
+### Full chat-import pipeline
+```
+1. memory_import_ai_export("path/to/export")   → extracts raw conversations
+2. memory_triage(input_folder="synapse_extracted/conversations_jsonl")
+                                                → filters keep/skip/redflag
+3. memory_import_filtered_jsonl(               → imports kept chats into vault
+       filtered_jsonl_folder=<triage output>)
+4. memory_build_graph()                        → wires new chats into topic graph
+```
+Step 2 needs `OPENROUTER_API_KEY` + `GROQ_API_KEY`. Steps 1 and 3 need `GEMINI_API_KEY`.
+Redflagged chats (secrets, identity, financial, health) are written to a separate folder and **never** imported.
 
 ### Maintenance
 | Tool | When |
