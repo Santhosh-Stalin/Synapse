@@ -27,6 +27,7 @@ jobs:
 
       - name: Tool registration smoke test
         run: |
+          mkdir -p vault
           python - <<'EOF'
           from server.main import app
           tools = {t.name for t in app._tool_manager.list_tools()}
