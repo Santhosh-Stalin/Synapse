@@ -171,8 +171,8 @@ def memory_conflicts(config: SynapseConfig, auto_resolve: bool = False) -> list[
     return resolutions
 
 
-def memory_scan_project(config: SynapseConfig, path: str) -> dict[str, Any]:
-    result = scan_and_extract(config, path)
+def memory_scan_project(config: SynapseConfig, path: str, exclude_dirs: list[str] | None = None) -> dict[str, Any]:
+    result = scan_and_extract(config, path, exclude_dirs=exclude_dirs)
     if "error" in result and "proposals" not in result:
         return result
 

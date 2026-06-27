@@ -222,7 +222,7 @@ def _load_hashes(graph_path: Path) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def scan_project(path_str: str) -> dict[str, Any]:
+def scan_project(path_str: str, exclude_dirs: list[str] | None = None) -> dict[str, Any]:
     """Raw file scan — returns tree + file contents, no AI extraction."""
     root = Path(path_str).expanduser().resolve()
     if not root.exists():
@@ -230,17 +230,20 @@ def scan_project(path_str: str) -> dict[str, Any]:
     if not root.is_dir():
         return {"error": f"Path is not a directory: {path_str}"}
 
+    extra_skip: frozenset[str] = frozenset(exclude_dirs) if exclude_dirs else frozenset()
+
     result: dict[str, Any] = {
         "project_name": root.name,
         "root": str(root),
-        "tree": _build_tree(root),
+        "tree": _build_tree(root, extra_skip=extra_skip),
         "files": {},
         "detected": _detect_project(root),
+        "excluded_dirs": sorted(extra_skip) if extra_skip else [],
     }
 
     budget = MAX_TOTAL_BYTES
 
-    for candidate in _walk_priority(root):
+    for candidate in _walk_priority(root, extra_skip):
         rel = str(candidate.relative_to(root)).replace("\\", "/")
         if rel in result["files"]:
             continue
@@ -253,7 +256,7 @@ def scan_project(path_str: str) -> dict[str, Any]:
             break
 
     if budget > 0:
-        for candidate in _walk_source(root):
+        for candidate in _walk_source(root, extra_skip):
             rel = str(candidate.relative_to(root)).replace("\\", "/")
             if rel in result["files"]:
                 continue
@@ -272,14 +275,14 @@ def scan_project(path_str: str) -> dict[str, Any]:
     return result
 
 
-def scan_and_extract(config: "SynapseConfig", path_str: str) -> dict[str, Any]:
+def scan_and_extract(config: "SynapseConfig", path_str: str, exclude_dirs: list[str] | None = None) -> dict[str, Any]:
     """
     Scan project + Gemma-powered extraction.
     Incremental: only re-extracts files whose content changed since last scan.
     Indexes results into vault/_code_index.db for semantic search.
     """
     root = Path(path_str).expanduser().resolve()
-    raw = scan_project(path_str)
+    raw = scan_project(path_str, exclude_dirs=exclude_dirs)
     if "error" in raw:
         return raw
 
@@ -728,23 +731,24 @@ def _is_vague(description: str, signature: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _build_tree(root: Path, depth: int = 0, max_depth: int = 3) -> list[dict[str, Any]]:
+def _build_tree(root: Path, depth: int = 0, max_depth: int = 3, extra_skip: frozenset[str] = frozenset()) -> list[dict[str, Any]]:
     if depth >= max_depth:
         return []
     try:
         items = sorted(root.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
     except PermissionError:
         return []
+    blocked = SKIP_DIRS | extra_skip
     entries = []
     for item in items:
-        if item.name.startswith(".") or item.name in SKIP_DIRS:
+        if item.name.startswith(".") or item.name in blocked or item.name in SKIP_FILES:
             continue
         if item.is_dir():
             entries.append(
                 {
                     "name": item.name,
                     "type": "dir",
-                    "children": _build_tree(item, depth + 1, max_depth),
+                    "children": _build_tree(item, depth + 1, max_depth, extra_skip),
                 }
             )
         elif item.suffix.lower() not in SKIP_EXTENSIONS:
@@ -780,10 +784,10 @@ def _detect_project(root: Path) -> dict[str, Any]:
     return detected
 
 
-def _walk_priority(root: Path):
+def _walk_priority(root: Path, extra_skip: frozenset[str] = frozenset()):
     seen: set[str] = set()
     for f in root.rglob("*"):
-        if not f.is_file() or _in_skip_dir(f, root):
+        if not f.is_file() or _in_skip_dir(f, root, extra_skip):
             continue
         rel = str(f.relative_to(root)).replace("\\", "/")
         name = f.name
@@ -798,7 +802,7 @@ def _walk_priority(root: Path):
             yield f
 
 
-def _walk_source(root: Path):
+def _walk_source(root: Path, extra_skip: frozenset[str] = frozenset()):
     all_exts = (
         SOURCE_EXTENSIONS
         | DATA_EXTENSIONS
@@ -808,7 +812,7 @@ def _walk_source(root: Path):
     )
     candidates = []
     for f in root.rglob("*"):
-        if not f.is_file() or _in_skip_dir(f, root):
+        if not f.is_file() or _in_skip_dir(f, root, extra_skip):
             continue
         ext = f.suffix.lower()
         if ext not in all_exts:
@@ -829,6 +833,7 @@ def _read_capped(path: Path, limit: int) -> str | None:
         return None
 
 
-def _in_skip_dir(path: Path, root: Path) -> bool:
+def _in_skip_dir(path: Path, root: Path, extra_skip: frozenset[str] = frozenset()) -> bool:
     parts = path.relative_to(root).parts
-    return any(part in SKIP_DIRS for part in parts) or path.name in SKIP_FILES
+    blocked = SKIP_DIRS | extra_skip
+    return any(part in blocked for part in parts) or path.name in SKIP_FILES
