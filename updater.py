@@ -10,8 +10,8 @@ Usage:
 How it works:
 1. Fetch latest release from GitHub API
 2. Compare to local VERSION
-3. If newer: backup current code → download release zip → extract →
-   pip install → run tests → done (or rollback on test failure)
+3. If newer: backup current code -> download release zip -> extract ->
+   pip install -> run tests -> done (or rollback on test failure)
 
 Vault, config.yaml, .env, and .venv are NEVER touched.
 """
@@ -219,11 +219,11 @@ def cmd_check() -> None:
     print(f"Local:  {local}")
     print(f"Latest: {latest}")
     if _version_tuple(latest) > _version_tuple(local):
-        print("→ Update available.")
+        print("-> Update available.")
     elif _version_tuple(latest) == _version_tuple(local):
-        print("→ Already up to date.")
+        print("-> Already up to date.")
     else:
-        print("→ Local is ahead of release (dev build).")
+        print("-> Local is ahead of release (dev build).")
 
 
 def cmd_update(force: bool = False) -> None:
@@ -234,7 +234,7 @@ def cmd_update(force: bool = False) -> None:
         print(f"[updater] Already on {local} — nothing to do. (Use --force to reinstall.)")
         return
 
-    print(f"[updater] Updating {local} → {latest}")
+    print(f"[updater] Updating {local} -> {latest}")
 
     # 1. Backup
     backup = _backup()
