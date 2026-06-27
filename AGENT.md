@@ -191,6 +191,7 @@ vault/
 | Tool | When |
 |---|---|
 | `memory_scan_project("path")` | Index a codebase — functions, classes, call graph. Python/JS/TS/Go/Rust/Java. |
+| `memory_scan_project("path", exclude_dirs=["dir1","dir2"])` | Same, but skip extra folders beyond the built-in exclusions. Always excluded: `vault` `.venv` `.git` `__pycache__` `.backups` `.claude` `node_modules` `build` `dist` `groq_blacklist_output` and secret files (`config.yaml` `.env`). Use `exclude_dirs` for any additional sensitive or irrelevant folders specific to the project being scanned. |
 | `memory_code_search("query")` | Hybrid search over indexed code nodes. |
 | `memory_code_stats(project)` | Stats for indexed projects. |
 

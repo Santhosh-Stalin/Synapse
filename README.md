@@ -199,9 +199,15 @@ memory_ingest_image_content("screenshot.png", description="...", sensitive=False
 
 ```python
 memory_scan_project("/path/to/your/project")
+
+# Skip extra sensitive or irrelevant folders beyond the built-in exclusions
+memory_scan_project("/path/to/your/project", exclude_dirs=["data", "secrets", "private"])
+
 memory_code_search("how does authentication work")
 memory_code_stats()
 ```
+
+**Always excluded (built-in):** `vault` · `.venv` · `.git` · `__pycache__` · `.backups` · `.claude` · `node_modules` · `build` · `dist` · `groq_blacklist_output` · secret files (`config.yaml`, `.env`)
 
 **Supported languages:** Python (AST), TypeScript/JavaScript, Go, Rust, Java (regex)
 
