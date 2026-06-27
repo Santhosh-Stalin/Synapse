@@ -63,6 +63,8 @@ _active_lock = threading.Lock()
 
 def start_watcher(config: "SynapseConfig", path_str: str) -> dict[str, Any]:
     global _active
+    if not path_str or not path_str.strip():
+        return {"error": "path is required — pass the absolute path to the project directory to watch"}
     with _active_lock:
         if _active and not _active.stop.is_set():
             return {
@@ -71,8 +73,10 @@ def start_watcher(config: "SynapseConfig", path_str: str) -> dict[str, Any]:
                 "project": _active.project_name,
             }
         root = Path(path_str).expanduser().resolve()
-        if not root.exists() or not root.is_dir():
-            return {"error": f"Path does not exist or is not a directory: {path_str}"}
+        if not root.exists():
+            return {"error": f"Path does not exist: {path_str}"}
+        if not root.is_dir():
+            return {"error": f"Path is not a directory: {path_str}"}
 
         state = _WatchState(config, root)
         _active = state

@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  # ── 1. Run full test suite ──────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --prefer-binary -r requirements.txt pytest
+
+      - name: Run core tests
+        run: python -m pytest Diagnostics/test_core.py -v
+
+  # ── 2. Build release zip ────────────────────────────────────────────────────
+  release:
+    name: Publish release
+    needs: test
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: echo "version=$(cat VERSION | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+
+      - name: Verify tag matches VERSION
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VER="${{ steps.version.outputs.version }}"
+          if [ "$TAG" != "$VER" ]; then
+            echo "ERROR: Tag $TAG does not match VERSION file ($VER)"
+            exit 1
+          fi
+
+      - name: Build release zip
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ZIP="synapse-${VERSION}.zip"
+
+          zip -r "$ZIP" \
+            server/ \
+            Diagnostics/ \
+            installer/ \
+            pipeline/ \
+            updater.py \
+            setup.py \
+            run_server.py \
+            install.bat \
+            requirements.txt \
+            AGENT.md \
+            README.md \
+            LICENSE \
+            CONTRIBUTING.md \
+            config.example.yaml \
+            VERSION \
+            --exclude "**/__pycache__/*" \
+            --exclude "**/*.pyc" \
+            --exclude "**/*.pyo"
+
+          echo "ZIP=$ZIP" >> $GITHUB_ENV
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Synapse v${{ steps.version.outputs.version }}"
+          body: |
+            ## Synapse v${{ steps.version.outputs.version }}
+
+            ### Install / Update
+            **New install:** Download `synapse-${{ steps.version.outputs.version }}.zip`, extract, run `python setup.py`.
+
+            **Existing install — one command update:**
+            ```bash
+            python updater.py
+            ```
+            Your vault, config.yaml, and .env are never touched.
+
+            ### Rollback
+            ```bash
+            python updater.py --rollback
+            ```
+          files: ${{ env.ZIP }}
+          draft: false
+          prerelease: false

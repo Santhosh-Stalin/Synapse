@@ -567,7 +567,7 @@ def import_ai_export(
         return {"error": str(e)}
 
     provider = _detect_provider(target)
-    print(f"[Synapse AI Import] Detected provider: {provider}", flush=True)
+    print(f"[Synapse AI Import] Detected provider: {provider}", file=__import__("sys").stderr, flush=True)
 
     if provider == "claude":
         chunks = _preprocess_claude(target)
@@ -634,7 +634,7 @@ def import_ai_export(
             "provider": provider,
         }
 
-    print(f"[Synapse AI Import] Account owner: {detected_owner}", flush=True)
+    print(f"[Synapse AI Import] Account owner: {detected_owner}", file=__import__("sys").stderr, flush=True)
 
     total = len(chunks)
     proposals: list[dict[str, Any]] = []
@@ -662,7 +662,7 @@ def import_ai_export(
             except Exception as exc:
                 patches = []
                 failed_chunks[label] = chunks[label]
-                print(f"[Synapse AI Import] chunk FAILED: {label} — {exc}", flush=True)
+                print(f"[Synapse AI Import] chunk FAILED: {label} — {exc}", file=__import__("sys").stderr, flush=True)
             done += 1
             print(
                 f"[Synapse AI Import] chunk {done}/{total} -> {len(patches)} patches: {label}",
@@ -706,7 +706,7 @@ def import_filtered_jsonl(
     bl_path = Path(blacklist_file).resolve() if blacklist_file else None
     rf_path = Path(redflag_file).resolve() if redflag_file else None
     blacklist = _load_blacklist(bl_path, rf_path)
-    print(f"[Synapse AI Import] Blacklist: {len(blacklist)} IDs will be skipped", flush=True)
+    print(f"[Synapse AI Import] Blacklist: {len(blacklist)} IDs will be skipped", file=__import__("sys").stderr, flush=True)
 
     chunks = _preprocess_filtered_jsonl(folder, blacklist)
     if not chunks:
@@ -746,7 +746,7 @@ def import_filtered_jsonl(
             except Exception as exc:
                 patches = []
                 failed_chunks[label] = chunks[label]
-                print(f"[Synapse AI Import] FAILED: {label} — {exc}", flush=True)
+                print(f"[Synapse AI Import] FAILED: {label} — {exc}", file=__import__("sys").stderr, flush=True)
             done += 1
             print(
                 f"[Synapse AI Import] {done}/{total} -> {len(patches)} patches: {label}", flush=True

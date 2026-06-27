@@ -295,7 +295,7 @@ def _review_all(
                 _, result = future.result()
                 all_decisions.extend(result.get("decisions", []))
             except Exception as e:
-                print(f"[Triage] Chunk failed: {e}", flush=True)
+                print(f"[Triage] Chunk failed: {e}", file=__import__("sys").stderr, flush=True)
 
     all_decisions.sort(key=lambda d: (str(d.get("source_file", "")), int(d.get("source_line", 0)) if str(d.get("source_line", "0")).isdigit() else 0))
     return all_decisions
@@ -377,11 +377,73 @@ def _write_outputs(
 # ── Public entry point ────────────────────────────────────────────────────────
 
 
+def _review_with_gemini(
+    gemini_client: Any,
+    chunk: list[dict],
+    chunk_idx: int,
+    total: int,
+) -> dict:
+    payload = {"chunk_index": chunk_idx, "total_chunks": total, "conversations": chunk}
+    prompt = f"{FILTER_SYSTEM_PROMPT}\n\n{json.dumps(payload, ensure_ascii=False)}"
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = gemini_client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+                config={"temperature": 0.1, "response_mime_type": "application/json"},
+            )
+            parsed = json.loads(_clean_json(resp.text))
+            parsed.update({"chunk_index": chunk_idx, "total_chunks": total, "provider_used": "gemini"})
+            return parsed
+        except Exception as e:
+            if _is_rate_limit(e):
+                time.sleep(_wait_seconds(e))
+                continue
+            if attempt == MAX_RETRIES:
+                raise
+            time.sleep(min(30 * attempt, 180))
+    raise RuntimeError("Gemini triage exhausted retries")
+
+
+def _review_all_gemini(
+    gemini_client: Any,
+    chunks: list[list[dict]],
+    decisions_folder: Path,
+    force: bool,
+    workers: int,
+) -> list[dict]:
+    decisions_folder.mkdir(parents=True, exist_ok=True)
+    total = len(chunks)
+    all_decisions: list[dict] = []
+
+    def worker(args: tuple) -> tuple[int, dict]:
+        idx, chunk = args
+        path = decisions_folder / f"decisions_chunk_{idx:04d}.json"
+        if path.exists() and not force:
+            return idx, json.loads(path.read_text(encoding="utf-8"))
+        result = _review_with_gemini(gemini_client, chunk, idx, total)
+        path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        return idx, result
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(worker, (i + 1, chunk)): i for i, chunk in enumerate(chunks)}
+        for future in as_completed(futures):
+            try:
+                _, result = future.result()
+                all_decisions.extend(result.get("decisions", []))
+            except Exception as e:
+                print(f"[Triage] Gemini chunk failed: {e}", file=__import__("sys").stderr, flush=True)
+
+    all_decisions.sort(key=lambda d: (str(d.get("source_file", "")), int(d.get("source_line", 0)) if str(d.get("source_line", "0")).isdigit() else 0))
+    return all_decisions
+
+
 def run_triage(
     input_folder: str,
     output_folder: str,
     openrouter_api_key: str,
     groq_api_key: str,
+    gemini_api_key: str = "",
     force_review: bool = False,
     openrouter_model: str = DEFAULT_OPENROUTER_MODEL,
     groq_model: str = DEFAULT_GROQ_MODEL,
@@ -390,19 +452,29 @@ def run_triage(
     """
     Run the full triage pipeline on a conversations_jsonl folder.
 
+    Preferred: OpenRouter (primary) + Groq (rate-limit fallback) — sensitive content
+    stays off Google's servers.
+
+    Gemini fallback: when OPENROUTER_API_KEY and GROQ_API_KEY are both absent but
+    gemini_api_key is provided, Gemini Flash is used instead. A privacy warning is
+    included in the result because conversation content will go to Google's servers.
+
     Returns a summary dict. The `filtered_jsonl_folder` key is the path
     ready to pass straight into memory_import_filtered_jsonl.
     """
-    try:
-        from openai import OpenAI
-        from groq import Groq
-    except ImportError as e:
-        return {"error": f"Missing dependency: {e}. Run: pip install openai groq"}
+    use_gemini_fallback = (not openrouter_api_key and not groq_api_key and bool(gemini_api_key))
 
-    if not openrouter_api_key:
-        return {"error": "OPENROUTER_API_KEY is required for memory_triage"}
-    if not groq_api_key:
-        return {"error": "GROQ_API_KEY is required for memory_triage (Groq is the rate-limit fallback)"}
+    if not use_gemini_fallback:
+        try:
+            from openai import OpenAI
+            from groq import Groq
+        except ImportError as e:
+            return {"error": f"Missing dependency: {e}. Run: pip install openai groq"}
+
+        if not openrouter_api_key:
+            return {"error": "OPENROUTER_API_KEY is required for memory_triage. Set it in .env or provide gemini_api_key to use Gemini fallback."}
+        if not groq_api_key:
+            return {"error": "GROQ_API_KEY is required for memory_triage (rate-limit fallback). Set it in .env or provide gemini_api_key to use Gemini fallback."}
 
     in_path = Path(input_folder).expanduser().resolve()
     out_path = Path(output_folder).expanduser().resolve()
@@ -412,31 +484,47 @@ def run_triage(
 
     out_path.mkdir(parents=True, exist_ok=True)
 
-    # Attach model names as attributes so helper functions can reach them
-    or_client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=openrouter_api_key,
-        default_headers={"HTTP-Referer": "http://localhost", "X-Title": "Synapse Triage"},
-    )
-    or_client._or_model = openrouter_model  # type: ignore[attr-defined]
-
-    groq_client = Groq(api_key=groq_api_key)
-    groq_client._groq_model = groq_model  # type: ignore[attr-defined]
-
-    print(f"[Triage] Loading conversations from {in_path}", flush=True)
+    print(f"[Triage] Loading conversations from {in_path}", file=__import__("sys").stderr, flush=True)
     conversations = _load_conversations(in_path)
     if not conversations:
         return {"error": f"No .jsonl files found in {input_folder}"}
 
-    print(f"[Triage] {len(conversations)} conversations loaded", flush=True)
+    print(f"[Triage] {len(conversations)} conversations loaded", file=__import__("sys").stderr, flush=True)
     records = [_make_index_record(c) for c in conversations]
     _write_index_tables(records, out_path)
-
     chunks = _split_chunks(records)
-    print(f"[Triage] {len(chunks)} index chunks → OpenRouter ({workers} workers)", flush=True)
 
-    decisions_folder = out_path / "openrouter_decisions"
-    all_decisions = _review_all(or_client, groq_client, chunks, decisions_folder, force_review, workers)
+    privacy_warning: str | None = None
+
+    if use_gemini_fallback:
+        try:
+            from google import genai as _genai
+        except ImportError:
+            return {"error": "Missing dependency: google-genai. Run: pip install google-genai"}
+        gemini_client = _genai.Client(api_key=gemini_api_key)
+        print(f"[Triage] {len(chunks)} index chunks → Gemini Flash fallback ({workers} workers)", file=__import__("sys").stderr, flush=True)
+        privacy_warning = (
+            "PRIVACY NOTE: Gemini fallback is active because OPENROUTER_API_KEY and GROQ_API_KEY are not set. "
+            "Conversation content is being sent to Google's servers. "
+            "Set OPENROUTER_API_KEY + GROQ_API_KEY in .env to keep sensitive content off Google."
+        )
+        decisions_folder = out_path / "gemini_decisions"
+        all_decisions = _review_all_gemini(gemini_client, chunks, decisions_folder, force_review, workers)
+    else:
+        # Attach model names as attributes so helper functions can reach them
+        or_client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=openrouter_api_key,
+            default_headers={"HTTP-Referer": "http://localhost", "X-Title": "Synapse Triage"},
+        )
+        or_client._or_model = openrouter_model  # type: ignore[attr-defined]
+
+        groq_client = Groq(api_key=groq_api_key)
+        groq_client._groq_model = groq_model  # type: ignore[attr-defined]
+
+        print(f"[Triage] {len(chunks)} index chunks → OpenRouter ({workers} workers)", file=__import__("sys").stderr, flush=True)
+        decisions_folder = out_path / "openrouter_decisions"
+        all_decisions = _review_all(or_client, groq_client, chunks, decisions_folder, force_review, workers)
 
     (out_path / "all_filter_decisions.json").write_text(
         json.dumps(all_decisions, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -447,9 +535,9 @@ def run_triage(
     filtered_jsonl_path = str(out_path / "filtered_conversations_jsonl")
     redflag_ids_path = str(out_path / "redflagged_sensitive_chats" / "redflagged_conversation_ids.txt")
 
-    print(f"[Triage] Done — kept={len(kept)}, skipped={len(skipped)}, redflagged={len(redflagged)}", flush=True)
+    print(f"[Triage] Done — kept={len(kept)}, skipped={len(skipped)}, redflagged={len(redflagged)}", file=__import__("sys").stderr, flush=True)
 
-    return {
+    result: dict[str, Any] = {
         "conversations_loaded": len(conversations),
         "kept": len(kept),
         "skipped": len(skipped),
@@ -459,3 +547,6 @@ def run_triage(
         "redflag_ids_file": redflag_ids_path,
         "next_step": f"Call memory_import_filtered_jsonl(filtered_jsonl_folder='{filtered_jsonl_path}') to import kept chats into the vault.",
     }
+    if privacy_warning:
+        result["privacy_warning"] = privacy_warning
+    return result

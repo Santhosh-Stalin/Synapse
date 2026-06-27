@@ -4,7 +4,7 @@ import difflib
 import json
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -484,9 +484,14 @@ def load_pending(config: SynapseConfig) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     try:
-        return json.loads(path.read_text(encoding="utf-8").strip() or "[]")
+        raw = json.loads(path.read_text(encoding="utf-8").strip() or "[]")
     except json.JSONDecodeError:
         return []
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=config.pending_auto_expire_days)).isoformat()
+    live = [p for p in raw if p.get("created_at", "9999") >= cutoff]
+    if len(live) < len(raw):
+        save_pending(config, live)
+    return live
 
 
 def save_pending(config: SynapseConfig, queue: list[dict[str, Any]]) -> None:
@@ -508,7 +513,14 @@ def _build_after_text(config: SynapseConfig, patch: dict[str, Any]) -> str:
             frontmatter["related"] = list(patch["related"])
         frontmatter["version"] = int(frontmatter.get("version", 0)) + 1
         frontmatter["last_updated"] = datetime.now().date().isoformat()
-        content = str(patch.get("content", existing_content)).strip()
+        new_content = str(patch.get("content", "")).strip()
+        merge = str(patch.get("merge", "replace")).lower()
+        if merge == "append" and new_content:
+            content = existing_content.rstrip() + "\n\n" + new_content
+        elif merge == "prepend" and new_content:
+            content = new_content + "\n\n" + existing_content.lstrip()
+        else:
+            content = new_content if new_content else existing_content
     else:
         frontmatter = new_frontmatter(
             key,
@@ -521,6 +533,7 @@ def _build_after_text(config: SynapseConfig, patch: dict[str, Any]) -> str:
         )
         frontmatter.update(patch.get("frontmatter", {}))
         content = str(patch.get("content", "")).strip()
+        # merge modes only apply to existing files; for new files always use content as-is
     _GENERIC_REASONS = {
         "High-signal memory moment.",
         "Approved memory update.",

@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [master]
+    tags: ["v*.*.*"]
   pull_request:
     branches: [master]
 
@@ -21,5 +22,25 @@ jobs:
       - name: Install dependencies
         run: pip install --prefer-binary -r requirements.txt pytest
 
-      - name: Run tests
+      - name: Core tests
         run: python -m pytest Diagnostics/test_core.py -v
+
+      - name: Tool registration smoke test
+        run: |
+          python - <<'EOF'
+          from server.main import app
+          tools = {t.name for t in app._tool_manager.list_tools()}
+          required = {
+              "memory_context", "memory_search", "memory_get",
+              "memory_propose_update", "memory_apply_update",
+              "memory_start_chat", "memory_update_chat", "memory_finalize_chat",
+              "memory_read_file", "memory_ingest_file", "memory_ingest_file_content",
+              "memory_ingest_image_content", "memory_preview_image",
+              "memory_list_files", "memory_quick_save_chat",
+          }
+          missing = required - tools
+          if missing:
+              print("MISSING TOOLS:", missing)
+              raise SystemExit(1)
+          print(f"OK — {len(tools)} tools registered, all required tools present.")
+          EOF

@@ -322,14 +322,15 @@ def build_topic_graph(config: SynapseConfig, top_k: int = 8) -> dict[str, Any]:
     if not chats_dir.exists():
         return {"error": "vault/chats/ directory not found"}
 
-    print("Loading chat nodes...")
+    import sys as _sys
+    print("Loading chat nodes...", file=_sys.stderr, flush=True)
     nodes = _load_nodes(chats_dir)
     if not nodes:
         return {"error": "No chat files found in vault/chats/"}
 
-    print(f"  {len(nodes)} nodes loaded. Building edges via inverted index...")
+    print(f"  {len(nodes)} nodes loaded. Building edges via inverted index...", file=_sys.stderr, flush=True)
     edges = _build_edges(nodes, top_k=top_k)
-    print(f"  {len(edges)} edges computed.")
+    print(f"  {len(edges)} edges computed.", file=_sys.stderr, flush=True)
 
     nodes_by_id = {n["chat_id"]: n for n in nodes}
 
@@ -352,10 +353,10 @@ def build_topic_graph(config: SynapseConfig, top_k: int = 8) -> dict[str, Any]:
         "edges": edges,
     }
     graph_path.write_text(json.dumps(graph_json, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"  topic_graph.json written to {graph_path}")
+    print(f"  topic_graph.json written to {graph_path}", file=_sys.stderr, flush=True)
 
     # Update each chat .md file
-    print("Updating chat files with related links...")
+    print("Updating chat files with related links...", file=_sys.stderr, flush=True)
     updated = 0
     for node in nodes:
         related = _related_for_node(node["chat_id"], edges, nodes_by_id)
@@ -363,9 +364,9 @@ def build_topic_graph(config: SynapseConfig, top_k: int = 8) -> dict[str, Any]:
             _update_chat_file(node, related)
             updated += 1
         except Exception as exc:
-            print(f"  WARNING: could not update {node['chat_id']}: {exc}")
+            print(f"  WARNING: could not update {node['chat_id']}: {exc}", file=_sys.stderr, flush=True)
 
-    print(f"  {updated}/{len(nodes)} files updated.")
+    print(f"  {updated}/{len(nodes)} files updated.", file=_sys.stderr, flush=True)
 
     return {
         "nodes": len(nodes),

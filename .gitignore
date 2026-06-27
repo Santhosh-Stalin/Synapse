@@ -23,6 +23,9 @@ monthly_chatgpt_logs/
 # Benchmark output — user-specific, regenerate with benchmark_tokens.py
 Diagnostics/benchmark_results.json
 
+# Update backups — local only, never pushed
+.backups/
+
 # Logs and scratch files
 *.log
 Untitled*.txt

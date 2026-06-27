@@ -33,7 +33,7 @@ class SynapseConfig:
     git_enabled: bool = True
     weekly_report_day: str = "monday"
     life_mode: bool = False
-    pending_auto_expire_days: int = 7
+    pending_auto_expire_days: int = 90
     gemini_api_key: str = ""
     groq_api_key: str = ""
     cerebras_api_key: str = ""
@@ -75,7 +75,7 @@ def load_config(config_path: Path | None = None) -> SynapseConfig:
         git_enabled=_as_bool(values.get("git_enabled", True)),
         weekly_report_day=str(values.get("weekly_report_day", "monday")),
         life_mode=_as_bool(values.get("life_mode", False)),
-        pending_auto_expire_days=int(values.get("pending_auto_expire_days", 7)),
+        pending_auto_expire_days=int(values.get("pending_auto_expire_days", 90)),
         gemini_api_key=gemini_key,
         groq_api_key=groq_key,
         cerebras_api_key=cerebras_key,
