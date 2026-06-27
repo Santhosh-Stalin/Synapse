@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .config import SynapseConfig
 
 SKIP_DIRS = {
+    # dependency / build artifacts
     "node_modules",
     "__pycache__",
     ".venv",
@@ -28,6 +29,27 @@ SKIP_DIRS = {
     ".turbo",
     ".cache",
     "coverage",
+    ".pytest_cache",
+    # Synapse-specific — personal data, never scan
+    "vault",
+    ".backups",
+    ".claude",
+    "groq_blacklist_output",
+    "synapse_extracted",
+    "synapse_filtered_chats",
+    "synapse_ai_summaries",
+    "monthly_chatgpt_logs",
+}
+
+# Individual files that must never be sent to any LLM
+SKIP_FILES = {
+    "config.yaml",
+    "config.yml",
+    ".env",
+    ".env.local",
+    ".env.production",
+    "secrets.yaml",
+    "secrets.json",
 }
 SKIP_EXTENSIONS = {
     ".pyc",
@@ -68,8 +90,6 @@ PRIORITY_NAMES = {
     "vite.config.ts",
     "vite.config.js",
     "tsconfig.json",
-    "config.yaml",
-    "config.yml",
     "main.py",
     "server.py",
     "app.py",
@@ -810,4 +830,5 @@ def _read_capped(path: Path, limit: int) -> str | None:
 
 
 def _in_skip_dir(path: Path, root: Path) -> bool:
-    return any(part in SKIP_DIRS for part in path.relative_to(root).parts)
+    parts = path.relative_to(root).parts
+    return any(part in SKIP_DIRS for part in parts) or path.name in SKIP_FILES

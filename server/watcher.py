@@ -33,6 +33,16 @@ SKIP_DIRS = {
     ".turbo",
     ".cache",
     "coverage",
+    ".pytest_cache",
+    # Synapse personal data — never watch
+    "vault",
+    ".backups",
+    ".claude",
+    "groq_blacklist_output",
+    "synapse_extracted",
+    "synapse_filtered_chats",
+    "synapse_ai_summaries",
+    "monthly_chatgpt_logs",
 }
 DEBOUNCE_S = 4.0
 POLL_S = 2.0

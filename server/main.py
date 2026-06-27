@@ -113,6 +113,14 @@ if not config.vault_path.exists():
     )
     sys.exit(1)
 
+# Auto-start vault watcher so external edits (Obsidian) are picked up immediately
+try:
+    from .functions import memory_watch_vault as _watch_vault
+    _watch_vault(config, enable=True)
+    print("[Synapse] Vault watcher started.", file=sys.stderr)
+except Exception as _e:
+    print(f"[Synapse] Vault watcher failed to start: {_e}", file=sys.stderr)
+
 
 @app.tool(name="memory_context")
 def context() -> dict:
