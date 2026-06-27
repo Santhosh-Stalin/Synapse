@@ -196,8 +196,8 @@ def memory_search(config: SynapseConfig, query: str) -> list[dict[str, Any]]:
             from .embeddings import semantic_search
 
             sem_results = semantic_search(
-                config.vault_path / "_index.db",
                 config.gemini_api_key,
+                config.vault_path / "_index.db",
                 _clean_query(query),
                 limit=4,
             )
@@ -208,7 +208,7 @@ def memory_search(config: SynapseConfig, query: str) -> list[dict[str, Any]]:
                 # Only let FTS5 boost semantic results — never add FTS-only noise keys
                 sem_keys = {r["key"] for r in sem_results}
                 fts_filtered = [r for r in fts_results if r["key"] in sem_keys]
-                results = hybrid_merge(fts_filtered, sem_results, limit=4)
+                results = hybrid_merge(fts_filtered, sem_results)[:4]
             else:
                 results = index.search(query)
         except Exception:
