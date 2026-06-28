@@ -17,7 +17,30 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .config import SynapseConfig
 
-WATCH_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx", ".cjs", ".mjs"}
+WATCH_EXTENSIONS = {
+    # Python
+    ".py", ".pyw",
+    # JavaScript / TypeScript
+    ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+    # Systems
+    ".go", ".rs", ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp",
+    # JVM
+    ".java", ".kt", ".kts", ".scala",
+    # C# / .NET
+    ".cs", ".fs", ".vb",
+    # Ruby / PHP / Lua
+    ".rb", ".php", ".lua",
+    # Shell
+    ".sh", ".bash", ".zsh", ".fish", ".ps1",
+    # Web
+    ".vue", ".svelte", ".astro",
+    # Data / config (text-based)
+    ".sql", ".graphql", ".proto",
+    # Docs / markup
+    ".md", ".mdx", ".rst", ".txt",
+    # Config
+    ".toml", ".yaml", ".yml", ".json", ".jsonc",
+}
 SKIP_DIRS = {
     # universal — dependency / build artifacts
     "node_modules",
