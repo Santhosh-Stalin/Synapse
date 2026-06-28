@@ -2,12 +2,38 @@ vault_path: ./vault
 git_enabled: true
 encryption: false
 cloud_search: false
+
 # write_mode controls how Claude handles memory writes:
 #   manual — Claude asks before each individual write (show diff, wait for yes/no)
 #   bulk   — Claude queues all changes silently, then asks to review everything at once
 #   auto   — Claude writes directly, no confirmation needed
 write_mode: manual
-gemini_api_key: ""
+
 pending_auto_expire_days: 7
 raw_archive_path: ./synapse_extracted
 weekly_report_day: monday
+
+# ---------------------------------------------------------------------------
+# Extraction provider — controls which AI runs memory_scan_project + watcher
+# ---------------------------------------------------------------------------
+# Options: gemini | groq | openai | claude | openrouter
+#
+# Privacy comparison:
+#   gemini      — FREE but Google may train on your data (free tier). See README.
+#   groq        — FREE, no training on data. ~100 RPM rotating 2 models.
+#   openrouter  — FREE models available, no training. ~20 RPM free tier.
+#   openai      — PAID, no training on API data. gpt-4o-mini is cheap.
+#   claude      — PAID, no training on API data. claude-haiku is cheapest.
+#
+extraction_provider: gemini
+
+# ---------------------------------------------------------------------------
+# API keys — leave blank if you don't use that provider
+# Never commit your actual keys; use .env instead (GEMINI_API_KEY=... etc.)
+# ---------------------------------------------------------------------------
+gemini_api_key: ""       # aistudio.google.com/apikey
+groq_api_key: ""         # console.groq.com  (free, no data training)
+cerebras_api_key: ""     # cloud.cerebras.ai (free, no data training)
+openai_api_key: ""       # platform.openai.com/api-keys (paid)
+anthropic_api_key: ""    # console.anthropic.com (paid)
+openrouter_api_key: ""   # openrouter.ai/keys (free models available)

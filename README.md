@@ -76,13 +76,36 @@ Restart Claude Desktop. Synapse appears in the tools list automatically.
 
 ## API keys
 
-| Key | Get it at | Required for |
-|-----|-----------|--------------|
-| `GEMINI_API_KEY` | aistudio.google.com/apikey | Everything — MCP server, search, import, scan, image extraction |
-| `GROQ_API_KEY` | console.groq.com | Filtering pipeline only (`memory_triage`) |
-| `OPENROUTER_API_KEY` | openrouter.ai/keys | Filtering pipeline only (`memory_triage`) |
+| Key | Provider | Free? | Required for |
+|-----|----------|-------|--------------|
+| `GEMINI_API_KEY` | Google | Yes (free tier) | Default extraction provider, semantic search, image extraction |
+| `GROQ_API_KEY` | Groq | Yes | Triage pipeline + extraction (if `extraction_provider: groq`) |
+| `CEREBRAS_API_KEY` | Cerebras | Yes | Triage pipeline fallback |
+| `OPENROUTER_API_KEY` | OpenRouter | Yes (free models) | Triage pipeline + extraction (if `extraction_provider: openrouter`) |
+| `OPENAI_API_KEY` | OpenAI | No (paid) | Extraction only (if `extraction_provider: openai`) |
+| `ANTHROPIC_API_KEY` | Anthropic | No (paid) | Extraction only (if `extraction_provider: claude`) |
 
-Only the Gemini key is needed for daily use.
+Only one extraction provider key is required. Gemini is the default.
+
+---
+
+## Privacy & data policy
+
+> **Warning — Gemini free tier:** When `extraction_provider: gemini` (the default), every file scanned by `memory_scan_project` and the watcher is sent to the Google Gemini API. On the **free tier**, Google's terms permit using API requests for model training and improvement. Your code, notes, and file contents may be used to train future Google models.
+>
+> **To opt out of data training, choose one of:**
+>
+> | Provider | Cost | Training on data | Rate limit |
+> |----------|------|-----------------|------------|
+> | `groq` | Free | No | ~100 RPM (rotates 2 models: llama-3.3-70b + llama-4-scout) |
+> | `openrouter` | Free models available | No | ~20 RPM free tier |
+> | `openai` | Paid (gpt-4o-mini ~$0.15/1M tokens) | No | 500 RPM (tier 1) |
+> | `claude` | Paid (haiku ~$0.80/1M tokens) | No | 50 RPM (tier 1) |
+> | `gemini` paid | Paid | No | 1000 RPM |
+>
+> **Recommended free alternative:** Set `extraction_provider: groq` in `config.yaml` and add `GROQ_API_KEY` to your `.env`. Groq is fast, free, and explicitly states they do not train on API data.
+>
+> **Safe regardless of provider:** `vault/`, `.env`, `config.yaml`, `secrets.*` are never sent to any provider.
 
 ---
 

@@ -157,15 +157,22 @@ _EXTRACT_WORKERS = 4
 _FN_BATCH_SIZE = 8
 _GEMMA_MODEL = "gemma-4-31b-it"
 
-
 # ---------------------------------------------------------------------------
-# Gemma client (mirrors ai_importer._gemma_complete)
+# Extraction provider implementations
+# ---------------------------------------------------------------------------
+# Provider is selected via config.extraction_provider:
+#   "gemini"    — Google Gemini API (free tier trains on your data — see README)
+#   "groq"      — Groq free tier (no training; ~100 RPM rotating 2 models)
+#   "openai"    — OpenAI API (no training; paid, not free)
+#   "claude"    — Anthropic Claude API (no training; paid, not free)
+#   "openrouter"— OpenRouter (free models available; ~20 RPM free tier)
 # ---------------------------------------------------------------------------
 
 
 def _gemma_complete(config: "SynapseConfig", system: str, user: str) -> str:
+    """Google Gemini (gemma-4-31b-it). WARNING: free tier may train on your data."""
     if not config.gemini_api_key:
-        raise RuntimeError("gemini_api_key required for code extraction")
+        raise RuntimeError("gemini_api_key required — set GEMINI_API_KEY in .env")
     try:
         from google import genai
         from google.genai import types
@@ -186,6 +193,93 @@ def _gemma_complete(config: "SynapseConfig", system: str, user: str) -> str:
         if chunk.text:
             chunks.append(chunk.text)
     return "".join(chunks)
+
+
+def _groq_complete(config: "SynapseConfig", system: str, user: str) -> str:
+    """Groq free tier — no data training. Rotates llama-3.3-70b / llama-4-scout (~100 RPM)."""
+    from .groq_client import get_client, groq_complete
+    return groq_complete(get_client(config), system, user)
+
+
+def _openai_complete(config: "SynapseConfig", system: str, user: str) -> str:
+    """OpenAI API — no data training on API tier. Paid, not free. Default model: gpt-4o-mini."""
+    if not config.openai_api_key:
+        raise RuntimeError("openai_api_key required — set OPENAI_API_KEY in .env")
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise RuntimeError("openai not installed: pip install openai")
+
+    client = OpenAI(api_key=config.openai_api_key)
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        temperature=0.2,
+        max_tokens=4096,
+    )
+    return response.choices[0].message.content.strip()
+
+
+def _claude_complete(config: "SynapseConfig", system: str, user: str) -> str:
+    """Anthropic Claude API — no data training. Paid, not free. Default model: claude-haiku-4-5."""
+    if not config.anthropic_api_key:
+        raise RuntimeError("anthropic_api_key required — set ANTHROPIC_API_KEY in .env")
+    try:
+        import anthropic
+    except ImportError:
+        raise RuntimeError("anthropic not installed: pip install anthropic")
+
+    client = anthropic.Anthropic(api_key=config.anthropic_api_key)
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4096,
+        system=system,
+        messages=[{"role": "user", "content": user}],
+    )
+    return message.content[0].text.strip()
+
+
+def _openrouter_complete(config: "SynapseConfig", system: str, user: str) -> str:
+    """OpenRouter — free models available (~20 RPM free tier). Default: meta-llama/llama-3.3-70b-instruct:free."""
+    if not config.openrouter_api_key:
+        raise RuntimeError("openrouter_api_key required — set OPENROUTER_API_KEY in .env")
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise RuntimeError("openai not installed (OpenRouter uses OpenAI SDK): pip install openai")
+
+    client = OpenAI(
+        api_key=config.openrouter_api_key,
+        base_url="https://openrouter.ai/api/v1",
+    )
+    response = client.chat.completions.create(
+        model="meta-llama/llama-3.3-70b-instruct:free",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        temperature=0.2,
+        max_tokens=4096,
+    )
+    return response.choices[0].message.content.strip()
+
+
+def _dispatch_complete(config: "SynapseConfig", system: str, user: str) -> str:
+    """Route to the configured extraction provider."""
+    provider = getattr(config, "extraction_provider", "gemini").lower()
+    if provider == "groq":
+        return _groq_complete(config, system, user)
+    if provider == "openai":
+        return _openai_complete(config, system, user)
+    if provider == "claude":
+        return _claude_complete(config, system, user)
+    if provider == "openrouter":
+        return _openrouter_complete(config, system, user)
+    # default: gemini
+    return _gemma_complete(config, system, user)
 
 
 # ---------------------------------------------------------------------------
@@ -523,7 +617,7 @@ def _ai_extract_data_file(
 ) -> list[dict[str, Any]]:
     user_msg = f"Project: {project_name}\nFile: {rel_path}\n\n```\n{content}\n```"
     try:
-        raw = _gemma_complete(config, _DATA_SYSTEM_PROMPT, user_msg)
+        raw = _dispatch_complete(config, _DATA_SYSTEM_PROMPT, user_msg)
         return _parse_patches(raw)
     except Exception:
         return []
@@ -536,7 +630,7 @@ def _ai_extract_file(
     prompt = _DATA_SYSTEM_PROMPT if ext in DATA_EXTENSIONS else _FILE_SYSTEM_PROMPT
     user_msg = f"Project: {project_name}\nFile: {rel_path}\n\n```\n{content}\n```"
     try:
-        raw = _gemma_complete(config, prompt, user_msg)
+        raw = _dispatch_complete(config, prompt, user_msg)
         return _parse_patch(raw) if raw else None
     except Exception:
         return None

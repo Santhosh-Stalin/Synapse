@@ -37,6 +37,10 @@ class SynapseConfig:
     gemini_api_key: str = ""
     groq_api_key: str = ""
     cerebras_api_key: str = ""
+    openai_api_key: str = ""
+    anthropic_api_key: str = ""
+    openrouter_api_key: str = ""
+    extraction_provider: str = "gemini"  # gemini | groq | openai | claude | openrouter
     write_mode: str = "manual"  # manual | bulk | auto
 
 
@@ -65,6 +69,9 @@ def load_config(config_path: Path | None = None) -> SynapseConfig:
     )
     groq_key = os.environ.get("GROQ_API_KEY") or str(values.get("groq_api_key", ""))
     cerebras_key = os.environ.get("CEREBRAS_API_KEY") or str(values.get("cerebras_api_key", ""))
+    openai_key = os.environ.get("OPENAI_API_KEY") or str(values.get("openai_api_key", ""))
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or str(values.get("anthropic_api_key", ""))
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY") or str(values.get("openrouter_api_key", ""))
 
     return SynapseConfig(
         root_path=root,
@@ -79,6 +86,10 @@ def load_config(config_path: Path | None = None) -> SynapseConfig:
         gemini_api_key=gemini_key,
         groq_api_key=groq_key,
         cerebras_api_key=cerebras_key,
+        openai_api_key=openai_key,
+        anthropic_api_key=anthropic_key,
+        openrouter_api_key=openrouter_key,
+        extraction_provider=str(values.get("extraction_provider", "gemini")),
         write_mode=str(values.get("write_mode", "manual")),
     )
 
