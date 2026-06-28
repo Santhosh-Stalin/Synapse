@@ -25,7 +25,7 @@ weekly_report_day: monday
 #   openai      — PAID, no training on API data. gpt-4o-mini is cheap.
 #   claude      — PAID, no training on API data. claude-haiku is cheapest.
 #
-extraction_provider: gemini
+extraction_provider: cerebras
 
 # ---------------------------------------------------------------------------
 # API keys — leave blank if you don't use that provider

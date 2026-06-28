@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .config import SynapseConfig
 
-# Each model has its own RPM bucket; rotating across them multiplies effective throughput.
+# Extraction uses 70b only — scout's 1,000 RPD free-tier cap is too low for project scans.
+# Triage (memory_triage) makes far fewer requests so scout works fine there.
 _MODELS = [
     "llama-3.3-70b-versatile",
-    "meta-llama/llama-4-scout-17b-16e-instruct",
 ]
 _model_cycle = itertools.cycle(_MODELS)
 _model_lock = threading.Lock()
@@ -25,6 +25,43 @@ _cerebras_slots = threading.BoundedSemaphore(2)
 _MAX_RETRIES = 5
 _RETRY_DELAY = 2.0
 _CEREBRAS_WALL_TIMEOUT = 15.0
+
+# ---------------------------------------------------------------------------
+# Token-bucket rate limiter — free tier: 12,000 TPM actual (not 200K, that's paid)
+# We target 10,000 TPM to leave headroom for bursts.
+# ---------------------------------------------------------------------------
+_TPM_LIMIT = 10_000
+_tpm_lock = threading.Lock()
+_tpm_tokens_used = 0.0
+_tpm_window_start = time.monotonic()
+
+
+def _tpm_acquire(estimated_tokens: int) -> None:
+    """Block until sending estimated_tokens won't exceed the TPM budget."""
+    global _tpm_tokens_used, _tpm_window_start
+    with _tpm_lock:
+        now = time.monotonic()
+        elapsed = now - _tpm_window_start
+        if elapsed >= 60.0:
+            # New minute — reset window
+            _tpm_tokens_used = 0.0
+            _tpm_window_start = now
+            elapsed = 0.0
+
+        if _tpm_tokens_used + estimated_tokens > _TPM_LIMIT:
+            # Wait out the remainder of this minute
+            wait = 60.0 - elapsed + 1.0
+            print(f"[Groq] TPM budget ({_TPM_LIMIT}) reached — waiting {wait:.1f}s", flush=True)
+        else:
+            wait = 0.0
+
+        _tpm_tokens_used += estimated_tokens
+
+    if wait > 0:
+        time.sleep(wait)
+        with _tpm_lock:
+            _tpm_tokens_used = estimated_tokens
+            _tpm_window_start = time.monotonic()
 
 
 def _next_model() -> str:
@@ -44,7 +81,11 @@ def get_client(config: "SynapseConfig") -> Any:
 
 
 def groq_complete(client: Any, system: str, user: str, max_tokens: int = 4096) -> str:
-    """Call Groq with retries, rotating models on rate limit errors."""
+    """Call Groq with retries and TPM rate limiting."""
+    # Estimate tokens before sending (1 token ≈ 4 chars)
+    estimated_tokens = (len(system) + len(user)) // 4 + max_tokens // 2
+    _tpm_acquire(estimated_tokens)
+
     model = _next_model()
     for attempt in range(_MAX_RETRIES):
         try:
@@ -61,7 +102,6 @@ def groq_complete(client: Any, system: str, user: str, max_tokens: int = 4096) -
         except Exception as exc:
             msg = str(exc).lower()
             if "rate limit" in msg or "429" in msg:
-                # Rotate to next model on rate limit; this hits a fresh RPM bucket.
                 model = _next_model()
                 wait = _RETRY_DELAY * (2**attempt)
                 print(

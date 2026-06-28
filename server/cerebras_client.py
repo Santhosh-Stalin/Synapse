@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from .config import SynapseConfig
 
 # Best quality model; gpt-oss-120b is the congestion fallback within Cerebras.
-_MODEL_PRIMARY = "qwen-3-235b-a22b-instruct-2507"
+_MODEL_PRIMARY = "zai-glm-4.7"
 _MODEL_FAST = "gpt-oss-120b"
 
 _MAX_RETRIES = 3
