@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from .config import SynapseConfig
 
 SKIP_DIRS = {
-    # dependency / build artifacts
+    # universal — dependency / build artifacts
     "node_modules",
     "__pycache__",
     ".venv",
@@ -30,24 +30,18 @@ SKIP_DIRS = {
     ".cache",
     "coverage",
     ".pytest_cache",
-    # Synapse-specific — personal data, never scan
-    "vault",
-    ".backups",
+    # always skip — contains LLM/tool configs and session data across all projects
     ".claude",
-    "groq_blacklist_output",
-    "synapse_extracted",
-    "synapse_filtered_chats",
-    "synapse_ai_summaries",
-    "monthly_chatgpt_logs",
 }
 
-# Individual files that must never be sent to any LLM
+# Files universally sensitive — never send to any LLM regardless of project
 SKIP_FILES = {
-    "config.yaml",
-    "config.yml",
     ".env",
     ".env.local",
     ".env.production",
+    ".env.staging",
+    "config.yaml",
+    "config.yml",
     "secrets.yaml",
     "secrets.json",
 }

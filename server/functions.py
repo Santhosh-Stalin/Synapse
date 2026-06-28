@@ -343,8 +343,8 @@ def memory_relink_all(config: SynapseConfig) -> dict[str, Any]:
     return result
 
 
-def memory_start_watcher(config: SynapseConfig, path: str) -> dict[str, Any]:
-    return start_watcher(config, path)
+def memory_start_watcher(config: SynapseConfig, path: str, exclude_dirs: list[str] | None = None) -> dict[str, Any]:
+    return start_watcher(config, path, exclude_dirs=exclude_dirs)
 
 
 def memory_stop_watcher() -> dict[str, Any]:

@@ -260,9 +260,9 @@ def weekly_report() -> dict:
 
 
 @app.tool(name="memory_start_watcher")
-def start_watcher(path: str) -> dict:
-    """Start the incremental file watcher for a project. Auto-extracts changed files with the configured inference provider."""
-    return memory_start_watcher(config, path)
+def start_watcher(path: str, exclude_dirs: list[str] = []) -> dict:
+    """Start the incremental file watcher for a project. Auto-extracts changed files with the configured inference provider. Pass exclude_dirs to skip project-specific folders (e.g. ['vault','.backups'])."""
+    return memory_start_watcher(config, path, exclude_dirs=exclude_dirs or None)
 
 
 @app.tool(name="memory_stop_watcher")

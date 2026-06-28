@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 WATCH_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx", ".cjs", ".mjs"}
 SKIP_DIRS = {
+    # universal — dependency / build artifacts
     "node_modules",
     "__pycache__",
     ".venv",
@@ -34,25 +35,19 @@ SKIP_DIRS = {
     ".cache",
     "coverage",
     ".pytest_cache",
-    # Synapse personal data — never watch
-    "vault",
-    ".backups",
+    # always skip — contains LLM/tool configs and session data across all projects
     ".claude",
-    "groq_blacklist_output",
-    "synapse_extracted",
-    "synapse_filtered_chats",
-    "synapse_ai_summaries",
-    "monthly_chatgpt_logs",
 }
 DEBOUNCE_S = 4.0
 POLL_S = 2.0
 
 
 class _WatchState:
-    def __init__(self, config: "SynapseConfig", root: Path) -> None:
+    def __init__(self, config: "SynapseConfig", root: Path, extra_skip: frozenset[str] = frozenset()) -> None:
         self.config = config
         self.root = root
         self.project_name = root.name
+        self.extra_skip = extra_skip
         self.pending: dict[str, float] = {}  # rel_path -> process-after timestamp
         self.lock = threading.Lock()
         self.stop = threading.Event()
@@ -71,7 +66,7 @@ _active_lock = threading.Lock()
 # ---------------------------------------------------------------------------
 
 
-def start_watcher(config: "SynapseConfig", path_str: str) -> dict[str, Any]:
+def start_watcher(config: "SynapseConfig", path_str: str, exclude_dirs: list[str] | None = None) -> dict[str, Any]:
     global _active
     if not path_str or not path_str.strip():
         return {"error": "path is required — pass the absolute path to the project directory to watch"}
@@ -88,7 +83,8 @@ def start_watcher(config: "SynapseConfig", path_str: str) -> dict[str, Any]:
         if not root.is_dir():
             return {"error": f"Path is not a directory: {path_str}"}
 
-        state = _WatchState(config, root)
+        extra_skip = frozenset(exclude_dirs) if exclude_dirs else frozenset()
+        state = _WatchState(config, root, extra_skip)
         _active = state
 
         threading.Thread(
@@ -142,6 +138,8 @@ def _observe(state: _WatchState) -> None:
     """Poll project tree for mtime changes and enqueue modified files."""
     mtimes: dict[str, float] = {}
 
+    blocked = SKIP_DIRS | state.extra_skip
+
     def _snapshot() -> None:
         for f in state.root.rglob("*"):
             if not f.is_file():
@@ -149,7 +147,7 @@ def _observe(state: _WatchState) -> None:
             if f.suffix.lower() not in WATCH_EXTENSIONS:
                 continue
             rel_parts = f.relative_to(state.root).parts
-            if any(p in SKIP_DIRS for p in rel_parts):
+            if any(p in blocked for p in rel_parts):
                 continue
             rel = "/".join(rel_parts)
             try:
@@ -170,7 +168,7 @@ def _observe(state: _WatchState) -> None:
                 if f.suffix.lower() not in WATCH_EXTENSIONS:
                     continue
                 rel_parts = f.relative_to(state.root).parts
-                if any(p in SKIP_DIRS for p in rel_parts):
+                if any(p in blocked for p in rel_parts):
                     continue
                 rel = "/".join(rel_parts)
                 try:
