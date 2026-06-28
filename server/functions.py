@@ -171,7 +171,26 @@ def memory_conflicts(config: SynapseConfig, auto_resolve: bool = False) -> list[
     return resolutions
 
 
-def memory_scan_project(config: SynapseConfig, path: str, exclude_dirs: list[str] | None = None) -> dict[str, Any]:
+def memory_scan_project(
+    config: SynapseConfig,
+    path: str,
+    exclude_dirs: list[str] | None = None,
+    background: bool = True,
+) -> dict[str, Any]:
+    if background:
+        return _bg.start_job(
+            "scan_project",
+            _scan_project_sync,
+            config, path, exclude_dirs,
+        )
+    return _scan_project_sync(config, path, exclude_dirs)
+
+
+def _scan_project_sync(
+    config: SynapseConfig,
+    path: str,
+    exclude_dirs: list[str] | None = None,
+) -> dict[str, Any]:
     result = scan_and_extract(config, path, exclude_dirs=exclude_dirs)
     if "error" in result and "proposals" not in result:
         return result
@@ -194,7 +213,7 @@ def memory_scan_project(config: SynapseConfig, path: str, exclude_dirs: list[str
         "patches_proposed": len(patch_ids),
         "patch_ids": patch_ids,
         "errors": errors,
-        "next_step": "Call memory.diff to review, then memory.apply_update per patch_id.",
+        "next_step": "Call memory_diff to review patches, then memory_apply_update per patch_id.",
     }
 
 
@@ -696,7 +715,6 @@ def memory_finalize_chat(
     - summary: detailed 3-8 sentence summary of the full conversation
     - tags: topic tags (auto-derived from session activity if omitted)
     """
-    import datetime as _dt
     import re
 
     vault = config.vault_path

@@ -201,9 +201,9 @@ def relink_all() -> dict:
 
 
 @app.tool(name="memory_scan_project")
-def scan_project(path: str, exclude_dirs: list[str] = []) -> dict:
-    """Scans a project directory with AI to extract file and function-level memory patches. Pass exclude_dirs=["secrets","data"] to skip additional folders beyond the built-in exclusions (vault, .venv, node_modules, .git, etc. are always skipped)."""
-    return memory_scan_project(config, path, exclude_dirs=exclude_dirs or None)
+def scan_project(path: str, exclude_dirs: list[str] = [], background: bool = True) -> dict:
+    """Scans a project directory with AI to extract file and function-level memory patches. Runs in background by default — poll memory_index_status for progress. Pass exclude_dirs=["secrets","logs"] to skip extra folders beyond built-in exclusions (vault, .venv, .git, node_modules, config.yaml, .env etc. are always skipped). Set background=False to block until complete."""
+    return memory_scan_project(config, path, exclude_dirs=exclude_dirs or None, background=background)
 
 
 @app.tool(name="memory_import_ai_export")
