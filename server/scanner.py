@@ -267,9 +267,17 @@ def _openrouter_complete(config: "SynapseConfig", system: str, user: str) -> str
     return response.choices[0].message.content.strip()
 
 
+def _cerebras_complete(config: "SynapseConfig", system: str, user: str) -> str:
+    """Cerebras free tier — no data training. Models: zai-glm-4.7 / gpt-oss-120b fallback."""
+    from .cerebras_client import get_client, cerebras_complete
+    return cerebras_complete(get_client(config), system, user)
+
+
 def _dispatch_complete(config: "SynapseConfig", system: str, user: str) -> str:
     """Route to the configured extraction provider."""
     provider = getattr(config, "extraction_provider", "gemini").lower()
+    if provider == "cerebras":
+        return _cerebras_complete(config, system, user)
     if provider == "groq":
         return _groq_complete(config, system, user)
     if provider == "openai":
@@ -527,7 +535,7 @@ You are a developer knowledge extractor. Analyze the source file and output exac
 Required format:
 {
   "key": "projects.<project_slug>.<file_slug>",
-  "content": "<markdown, 4-12 sentences>",
+  "content": "<structured markdown — see rules below>",
   "type": "code",
   "scope": "global",
   "weight": 0.8,
@@ -535,15 +543,29 @@ Required format:
   "reason": "<one sentence: why this file matters architecturally>"
 }
 
-Rules — go 2 levels deep, never generic:
+Content MUST have two sections:
+
+SECTION 1 — File summary (2-4 sentences, mechanism-specific):
 - Level 1: what the file does. Level 2: HOW — name the exact mechanism.
-- Name every exported function/class with its real name and actual role.
 - Name hardcoded values: ports, paths, env vars, constants, timeouts.
 - Name real imports from this project and why they're used.
 - Name real external libraries and WHY (not just "uses Flask" but what route/purpose).
-- If trivial (re-export or stub), set weight 0.3 and write 1 sentence.
 BAD:  "Handles authentication for the app."
 GOOD: "Exports useAuth hook: reads Firebase currentUser, wraps onAuthStateChanged, returns {user, loading, signOut}."
+
+SECTION 2 — Function/class inventory (REQUIRED unless file has zero definitions):
+Format exactly as:
+**Functions:**
+- `functionName(params)` (line N) — one-line: what it calls, returns, or mutates
+- `ClassName` (line N) — what it is and what methods it exposes
+
+Rules for function list:
+- Include ALL top-level functions and classes, even private ones (_underscore)
+- Line number must be the def/class line number as it appears in the source
+- Description must name actual calls, return types, side effects — never paraphrase the name
+- If file has no functions/classes (pure config/data), omit this section entirely
+
+If trivial (re-export or stub only), set weight 0.3 and write 1 sentence with no function section.
 
 project_slug: exact project name, lowercase, hyphens.
 file_slug: from path, hyphens (electron/main.cjs → electron-main).
@@ -588,7 +610,7 @@ def _ai_describe_functions(
     user_msg = f"Project: {project_name}\n\nFunctions:\n{fn_lines}"
 
     try:
-        raw = _gemma_complete(config, _FN_BATCH_PROMPT, user_msg)
+        raw = _dispatch_complete(config, _FN_BATCH_PROMPT, user_msg)
     except Exception:
         return {}
 
