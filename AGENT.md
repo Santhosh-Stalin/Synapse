@@ -172,6 +172,7 @@ vault/
 | `memory_search("query")` | ~200–900 | Find relevant active vault keys. Returns top 4. |
 | `memory_get("key")` | ~200–500 | Full content of a specific key. |
 | `memory_history("key")` | ~200 | Full write timeline: timestamps, session IDs, freshness, retrieval/correction counts. Use to check when something was last updated or what changed. |
+| `memory_timeline("key")` | ~300 | Rendered markdown timeline — every edit with date + session tag, freshness bar, version trail, git commits if enabled. Use when the user asks how a memory evolved over time. |
 | `memory_list("folder")` | ~50–200 | List all keys in a folder. Prefer over memory_tree. |
 
 ### Chat archive lookup (Tier 3)
@@ -383,6 +384,7 @@ Every `memory_get` response includes a `provenance` block. Read it to understand
 | `memory_propose_update` | `key`, `content`, `merge` (`"replace"`/`"append"`/`"prepend"`), `signal`, `session_id`, `trigger_reason` |
 | `memory_commit` | Same patch format as `memory_propose_update`. Respects `write_mode`. |
 | `memory_history` | `key` (required) → returns version, source_session, freshness, history list |
+| `memory_timeline` | `key` (required) → returns `timeline` (markdown string), version, freshness, history_count, corrections, retrievals |
 | `memory_start_chat` | `title` (required), `initial_topic` (optional context string) |
 | `memory_update_chat` | `chat_id` (required), `key_facts`, `decisions`, `problems_solved`, `technical_details`, `references`, `next_steps`, `timeline`, `deep_summary`, `tags` — all optional, all appended |
 | `memory_finalize_chat` | `chat_id`, `summary` (required), `tags` (list, optional) |
