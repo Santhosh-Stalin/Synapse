@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import uuid as _uuid
 from pathlib import Path
 from typing import Any
 
 from .config import SynapseConfig
+
+_SESSION_ID: str = _uuid.uuid4().hex
 from .dedup import memory_deduplicate as _dedup
 from .diff import (
     apply_update,
@@ -199,6 +202,7 @@ def _scan_project_sync(
     errors: list[dict[str, str]] = []
     for proposal in result.get("proposals", []):
         try:
+            proposal.setdefault("session_id", _SESSION_ID)
             r = propose_update(config, proposal)
             patch_ids.append(r["patch_id"])
         except Exception as exc:
@@ -228,6 +232,7 @@ def memory_ingest_text(
     errors: list[dict[str, str]] = []
     for proposal in result.get("proposals", []):
         try:
+            proposal.setdefault("session_id", _SESSION_ID)
             r = propose_update(config, proposal)
             patch_ids.append(r["patch_id"])
         except Exception as exc:
@@ -261,6 +266,7 @@ def memory_import_ai_export(
     errors: list[dict[str, str]] = []
     for proposal in result.get("proposals", []):
         try:
+            proposal.setdefault("session_id", _SESSION_ID)
             r = propose_update(config, proposal)
             patch_ids.append(r["patch_id"])
         except Exception as exc:
@@ -302,6 +308,7 @@ def memory_import_filtered_jsonl(
     errors: list[dict[str, str]] = []
     for proposal in result.get("proposals", []):
         try:
+            proposal.setdefault("session_id", _SESSION_ID)
             r = propose_update(config, proposal)
             patch_ids.append(r["patch_id"])
         except Exception as exc:
@@ -1634,6 +1641,34 @@ def memory_session_save(config: SynapseConfig) -> dict[str, Any]:
             "elapsed_seconds": stats["session_elapsed_seconds"],
             "top_tools": stats["top_tools"],
         },
+    }
+
+
+def memory_history(config: SynapseConfig, key: str) -> dict[str, Any]:
+    """Return the full structured history of a memory key — all write events with timestamps and session provenance."""
+    from .memory_file import parse_history
+    from .diff import _compute_freshness
+
+    vault = config.vault_path
+    _ensure_vault_path(vault)
+    file_path = key_to_path(vault, key)
+    if not file_path.exists():
+        raise ValueError(f"Memory key not found: {key}")
+
+    frontmatter, content = parse_memory_text(read_text(config, file_path))
+    entries = parse_history(content)
+
+    return {
+        "key": key,
+        "version": frontmatter.get("version", 1),
+        "created": entries[0]["date"] if entries else frontmatter.get("last_updated", ""),
+        "last_updated": frontmatter.get("last_updated", ""),
+        "source_session": frontmatter.get("source_session", ""),
+        "retrieval_count": int(frontmatter.get("retrieval_count", 0)),
+        "correction_count": int(frontmatter.get("correction_count", 0)),
+        "freshness": _compute_freshness(frontmatter),
+        "history": entries,
+        "history_count": len(entries),
     }
 
 

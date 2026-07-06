@@ -96,12 +96,31 @@ def new_frontmatter(
     }
 
 
-def ensure_history_entry(content: str, entry: str) -> str:
+def ensure_history_entry(content: str, entry: str, session_id: str = "") -> str:
     clean = content.strip()
-    dated_entry = f"- {date.today().isoformat()}: {entry.strip()}"
+    tag = f" [sess:{session_id[:8]}]" if session_id else ""
+    dated_entry = f"- {date.today().isoformat()}{tag}: {entry.strip()}"
     if "History:" not in clean:
         return f"{clean}\n\nHistory:\n{dated_entry}".strip()
     return f"{clean}\n{dated_entry}".strip()
+
+
+def parse_history(content: str) -> list[dict[str, str]]:
+    entries = []
+    in_history = False
+    for line in content.splitlines():
+        if line.strip() == "History:":
+            in_history = True
+            continue
+        if in_history and line.startswith("- "):
+            raw = line[2:].strip()
+            import re as _re
+            m = _re.match(r"^(\d{4}-\d{2}-\d{2})(?:\s+\[sess:([^\]]+)\])?:\s*(.+)$", raw)
+            if m:
+                entries.append({"date": m.group(1), "session_id": m.group(2) or "", "text": m.group(3)})
+        elif in_history and line and not line.startswith(" ") and not line.startswith("-"):
+            break
+    return entries
 
 
 def content_preview(content: str, limit: int = 360) -> str:

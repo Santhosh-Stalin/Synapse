@@ -89,7 +89,7 @@ def load_config(config_path: Path | None = None) -> SynapseConfig:
         openai_api_key=openai_key,
         anthropic_api_key=anthropic_key,
         openrouter_api_key=openrouter_key,
-        extraction_provider=str(values.get("extraction_provider", "gemini")),
+        extraction_provider=os.environ.get("EXTRACTION_PROVIDER") or str(values.get("extraction_provider", "gemini")),
         write_mode=str(values.get("write_mode", "manual")),
     )
 

@@ -48,6 +48,7 @@ from .functions import (
     memory_deep_search,
     memory_diff,
     memory_get,
+    memory_history,
     memory_import_ai_export,
     memory_import_filtered_jsonl,
     memory_import_synapse_summaries,
@@ -144,6 +145,12 @@ def tree(confirm: bool = False) -> dict:
 def get(key: str) -> dict:
     """Returns parsed frontmatter and content for a memory key such as work_stack."""
     return memory_get(config, key)
+
+
+@app.tool(name="memory_history")
+def history(key: str) -> dict:
+    """Returns the full structured write history of a memory key: all events with timestamps, session IDs, freshness score, and retrieval/correction counts."""
+    return memory_history(config, key)
 
 
 @app.tool(name="memory_search")

@@ -29,14 +29,14 @@ The last row is the point. A chat archive of 1,997 conversations is 1.37M tokens
 
 - **Memory agent** — Claude remembers across sessions, projects, and conversations
 - **Living chat records** — every conversation is saved as a detailed, growing 9-section document updated throughout the session
-- **File & document ingestion** — Claude converts PDF, DOCX, XLSX, CSV, HTML, and images into indexed Markdown and saves them to your vault
+- **File & document ingestion** — Claude converts PDF, DOCX, DOC, XLSX, XLS, CSV, TSV, HTML, and images into indexed Markdown and saves them to your vault
 - **Smart document reading** — Claude reads any file through Synapse (token-efficient conversion) rather than accessing it directly
 - **Image routing** — Claude views images inline and decides: sensitive (describes itself, no external API) or safe (Gemini extracts content)
 - **Token-aware** — tiered retrieval stops as soon as confidence is high enough; every response carries a `_tokens` field so Claude tracks its own budget
 - **Cross-provider** — import from ChatGPT, Claude.ai, or any conversation export; one vault for everything
 - **Local and private** — plain Markdown files on your machine, no SaaS, no cloud sync
 - **Code graph** — scan any project (Python, JS/TS, Go, Rust, Java) and ask Claude questions about it
-- **MCP server** — 50+ tools exposed via the Model Context Protocol; works with Claude Desktop and Claude Code
+- **MCP server** — 62 tools exposed via the Model Context Protocol; works with Claude Desktop and Claude Code
 
 ---
 
@@ -183,36 +183,80 @@ memory_read_file("/path/to/file.pdf")
 # → returns clean markdown for Claude to analyze
 ```
 
-Supports PDF, DOCX, XLSX, CSV, HTML, TXT. Token-efficient — converts only the content, skips formatting noise.
+No vault write — converts and returns. Token-efficient: skips formatting noise.
 
 ### Saving a file to the vault
 
-**From disk:**
+All file ingestion is a two-step flow — propose then apply:
+
+**Step 1 — propose:**
 ```python
-memory_ingest_file("/path/to/report.pdf")
+# From disk:
+result = memory_ingest_file("/path/to/report.pdf")
+
+# From a conversation attachment (Claude already has the text):
+result = memory_ingest_file_content("report.pdf", content)
 ```
 
-**From a conversation attachment** (Claude already has the content):
+**Step 2 — apply:**
 ```python
-memory_ingest_file_content("report.pdf", content)
+memory_apply_update(result["patch_id"])
 ```
 
-Files are saved to `vault/files/` as indexed Markdown and linked to the current chat.
+Files land in `vault/files/<stem>.md` with a metadata header:
+
+```markdown
+# report.pdf
+
+**Source:** `report.pdf`
+**Type:** PDF
+**Ingested:** 2026-07-06
+
+---
+
+## Page 1
+
+[converted content...]
+```
+
+### Supported file types
+
+| Extension | Conversion method | Library |
+|---|---|---|
+| `.pdf` | Page-by-page text extraction | `pypdf` |
+| `.docx` / `.doc` | Paragraph + heading style extraction | `python-docx` |
+| `.html` / `.htm` | Converts to Markdown | `markdownify` (falls back to regex strip) |
+| `.csv` / `.tsv` | Converts to Markdown table | stdlib `csv` |
+| `.xlsx` / `.xls` | One Markdown table per sheet | `openpyxl` |
+| `.txt` / `.md` | Read as-is | — |
+| Images | See image routing below | — |
+
+Missing a library? Each format gives a clear `pip install` error message.
 
 ### Images
 
-Claude views images inline via `memory_preview_image` and decides the routing:
+Images cannot go through `memory_ingest_file` — they must be viewed first:
 
-| Situation | Action |
+```python
+memory_preview_image("/path/to/image.png")
+# → Claude sees the image inline and decides routing
+```
+
+| Situation | Next call |
 |---|---|
-| Sensitive (passwords, IDs, medical, credentials) | Claude writes the description itself — no data sent to Gemini |
-| Safe (diagrams, screenshots, documents) | `memory_ingest_image_gemini` — Gemini extracts content |
-| Not worth saving | Skip |
+| Not worth saving (blank, generic icon) | Do nothing |
+| Sensitive (passwords, IDs, medical, credentials, private chats) | `memory_ingest_image_save(path, markdown=<Claude's own description>)` — no external API |
+| Safe (diagrams, screenshots, documents) | `memory_ingest_image_gemini(path)` — Gemini `gemini-2.0-flash` extracts Markdown |
 
-**From a conversation attachment:**
+**From a conversation attachment** (image dropped into chat — no file path):
 ```python
 memory_ingest_image_content("screenshot.png", description="...", sensitive=False)
+# → Claude's description saved directly, no Gemini involved
 ```
+
+All image tools still return a `patch_id` — call `memory_apply_update(patch_id)` to write.
+
+**Supported image formats:** `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`
 
 ---
 
@@ -328,13 +372,13 @@ Related: [[work/python]] | [[projects/ctf_entrypoint]]
 
 | Tool | Use |
 |---|---|
-| `memory_read_file(path)` | Convert PDF/DOCX/XLSX/CSV/HTML/TXT to markdown and return it. Claude always uses this instead of reading files directly. |
+| `memory_read_file(path)` | Convert PDF/DOCX/DOC/XLSX/XLS/CSV/TSV/HTML/TXT/MD to markdown and return it. Claude always uses this instead of reading files directly. |
 
 ### File & image ingestion
 
 | Tool | Use |
 |---|---|
-| `memory_ingest_file(path)` | File on disk → vault/files/. Supports PDF/DOCX/XLSX/CSV/HTML/TXT. |
+| `memory_ingest_file(path)` | File on disk → vault/files/. Supports PDF/DOCX/DOC/XLSX/XLS/CSV/TSV/HTML/TXT. Images redirect to preview flow. |
 | `memory_ingest_file_content(filename, content)` | File attached in conversation — Claude passes the text it received. |
 | `memory_ingest_image_content(filename, description, sensitive)` | Image attached in conversation — Claude writes the description. No Gemini. |
 | `memory_preview_image(path)` | Returns image for Claude to view inline. Claude then routes to save or gemini. |
@@ -349,20 +393,21 @@ Related: [[work/python]] | [[projects/ctf_entrypoint]]
 |---|---|---|
 | `memory_search(query)` | 200–900 | FTS5 + semantic search over active vault |
 | `memory_get(key)` | 200–500 | Full content of one memory file |
-| `memory_list_folder(folder)` | 50–200 | Keys in a vault folder |
+| `memory_history(key)` | ~200 | Full write history: timestamps, session IDs, freshness score, retrieval/correction counts |
+| `memory_list(folder)` | 50–200 | Keys in a vault folder |
 | `memory_multi_search(queries)` | 600–2,700 | Fan-out parallel search, merged by relevance |
 | `memory_deep_search(query)` | 1,000–2,000 | Graph-guided search over chat archive |
 | `memory_get_raw_chunks(id, query)` | 1,000–7,000 | Relevant windows from a raw conversation |
 | `memory_search_raw(title)` | ~200 | Fast title search over raw archive |
 | `memory_get_raw(id)` | 5,000–35,000 | Full raw conversation — avoid unless necessary |
 | `memory_ask(question)` | varies | Natural language Q&A over vault using Gemini |
-| `memory_tree()` | ~20,000 | Full vault tree — use `memory_list_folder` instead |
+| `memory_tree()` | ~20,000 | Full vault tree — use `memory_list` instead |
 
 ### Writing (low-level)
 
 | Tool | Use |
 |---|---|
-| `memory_propose_update(patch)` | Propose a diff for manual approval |
+| `memory_propose_update(patch)` | Propose a diff for manual approval. Supports `merge` field: `"replace"` (default), `"append"`, `"prepend"` |
 | `memory_reject_update(patch_id)` | Discard a pending patch |
 | `memory_diff()` | List pending patches |
 | `memory_apply_all(folder, dry_run)` | Apply all pending patches at once |
@@ -372,7 +417,7 @@ Related: [[work/python]] | [[projects/ctf_entrypoint]]
 
 | Tool | Use |
 |---|---|
-| `memory_scan_project(path)` | Index a code project (Python/JS/TS/Go/Rust/Java) |
+| `memory_scan_project(path)` | Index a code project (Python/JS/TS/Go/Rust/Java). **Runs in background by default** — poll `memory_index_status()` for progress. Pass `background=False` to block. |
 | `memory_code_search(query)` | Hybrid search over indexed code nodes |
 | `memory_code_stats(project)` | Stats for indexed projects |
 
@@ -398,7 +443,7 @@ Related: [[work/python]] | [[projects/ctf_entrypoint]]
 | `memory_relink_all()` | Recompute wikilinks for every file. Run after bulk imports. |
 | `memory_deduplicate()` | Report stray files and thin stubs |
 | `memory_smart_merge()` | Find and merge semantic duplicates |
-| `memory_organize_vault()` | Rebuild MOC index files (Obsidian) |
+| `memory_organize()` | Rebuild MOC index files (Obsidian) |
 | `memory_weekly_report()` | Generate weekly activity report |
 | `memory_conflicts(auto_resolve)` | Find contradictions. auto_resolve=True deprecates older file. |
 | `memory_vault_diff(since)` | List vault files modified after a date |
@@ -441,36 +486,267 @@ write_mode: auto     # Claude writes directly, no confirmation
 
 ```yaml
 vault_path: ./vault
+extraction_provider: gemini             # gemini | cerebras | groq | openai | openrouter | claude
+write_mode: manual                      # manual | bulk | auto
 git_enabled: true                       # auto-commit every write
-encryption: false                       # Fernet at-rest encryption
-cloud_search: false                     # Gemini LLM fallback for empty searches
+encryption: false                       # Fernet at-rest encryption (set SYNAPSE_FERNET_KEY in .env)
+cloud_search: false                     # Gemini LLM fallback for empty FTS5+semantic searches
 weekly_report_day: monday
-pending_auto_expire_days: 90
+pending_auto_expire_days: 90            # auto-prune pending patches older than N days on load
 raw_archive_path: ./synapse_extracted   # raw conversation archive (optional)
-write_mode: manual
-gemini_api_key: ""                      # prefer .env or environment variable
+gemini_api_key: ""                      # prefer .env or GEMINI_API_KEY / GOOGLE_API_KEY env var
+groq_api_key: ""
+cerebras_api_key: ""
 ```
+
+**Environment variable overrides:** `EXTRACTION_PROVIDER` (overrides `config.yaml`), `GEMINI_API_KEY`, `GOOGLE_API_KEY` (Gemini alias), `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `SYNAPSE_FERNET_KEY`.
+
+**Important:** `write_mode` is only read from `config.yaml` — there is no env override. `OPENROUTER_API_KEY` is not part of `SynapseConfig`; it must be set in `.env` or the shell for `memory_triage` to find it.
+
+---
+
+## AI provider configuration
+
+| Provider | Key | Free? | No data training | Best for |
+|---|---|---|---|---|
+| `gemini` (default) | `GEMINI_API_KEY` | Yes (free tier) | **No on free tier** | Semantic search, image extraction, `memory_ask` |
+| `cerebras` | `CEREBRAS_API_KEY` | Yes | Yes | Fast extraction, watcher, low latency |
+| `groq` | `GROQ_API_KEY` | Yes | Yes | Triage, extraction fallback |
+| `openrouter` | `OPENROUTER_API_KEY` | Free models | Yes | Triage primary model |
+| `openai` | `OPENAI_API_KEY` | Paid | Yes | Extraction |
+| `claude` | `ANTHROPIC_API_KEY` | Paid | Yes | Extraction |
+
+**Provider model details:**
+- **Cerebras** — primary: `zai-glm-4.7`, congestion fallback: `gpt-oss-120b`. 3 retries, 12s timeout.
+- **Groq** — rotates: `llama-3.3-70b-versatile` + `meta-llama/llama-4-scout-17b-16e-instruct`. 5 retries.
+- **Triage** — OpenRouter primary (`inclusionai/ring-2.6-1t:free`), Groq fallback (`llama-3.1-8b-instant`).
+- **`import_filtered_jsonl`** — always uses Gemini `gemma-4-31b-it` regardless of `extraction_provider`.
+- **`memory_ask`** — always uses Gemini `gemini-2.0-flash` regardless of `extraction_provider`.
+- **`best_complete()`** (used internally) — tries Cerebras first (15s wall timeout), falls back to Groq.
+
+**Semantic embeddings:** `gemini-embedding-001` (3072-dim). Only generated when `GEMINI_API_KEY` is set. Required for `memory_smart_merge` similarity and hybrid search. Without it, search falls back to FTS5-only.
+
+---
+
+## Security — what never gets sent to an LLM
+
+**Directories always skipped:**
+`node_modules`, `__pycache__`, `.venv`, `venv`, `.git`, `dist`, `build`, `.next`, `out`, `release`, `desktop-artifacts`, `.turbo`, `.cache`, `coverage`, `.pytest_cache`, `.claude`, `vault`, `.backups`
+
+**Files always skipped:**
+`.env`, `.env.local`, `.env.production`, `.env.staging`, `config.yaml`, `config.yml`, `secrets.yaml`, `secrets.json`
+
+**Extensions always skipped:**
+`.pyc`, `.lock`, `.ico`, image formats, `.woff`, `.ttf`, `.map`, `.db`, `.sqlite`, `.exe`, `.dll`, `.so`, `.bin`, `.zip`, `.tar`, `.gz`
+
+**Scan limits:** 12,000 chars per file, 500,000 chars total per scan.
+
+---
+
+## Encryption
+
+Set `encryption: true` in `config.yaml` and add `SYNAPSE_FERNET_KEY=<key>` to `.env`. Generate a key:
+
+```python
+from server.encryption import generate_key
+print(generate_key())
+```
+
+Encrypted files are stored with a `SYNAPSE-FERNET\n` prefix — unencrypted files are read transparently. To export the vault as a password-protected zip:
+
+```python
+from server.encryption import encrypted_export
+encrypted_export(config, output_path="vault_backup.zip", password="your-password")
+```
+
+---
+
+## Memory quality features
+
+### Provenance tracking
+
+Every write records the server session ID, timestamp, and trigger reason in the file's `History:` section using `[sess:XXXXXXXX]` tags:
+
+```
+History:
+- 2026-07-06 [sess:5b246d3d]: Merged from ChatGPT export
+- 2026-07-07 [sess:a1c3e9f2]: Corrected extraction provider
+```
+
+`memory_history(key)` returns the full structured history:
+
+```json
+{
+  "key": "work.stack",
+  "version": 4,
+  "source_session": "5b246d3d...",
+  "retrieval_count": 12,
+  "correction_count": 1,
+  "freshness": 0.87,
+  "history": [
+    {"date": "2026-07-06", "session_id": "5b246d3d", "text": "Initial import"},
+    {"date": "2026-07-07", "session_id": "a1c3e9f2", "text": "Corrected provider"}
+  ],
+  "history_count": 2
+}
+```
+
+Four session IDs are stamped per server restart: `_SESSION_ID` (main), `_WATCHER_SESSION_ID`, `_MERGER_SESSION_ID`, `_IMPORTER_SESSION_ID`. These flow into `source_session` in each written file so every patch is traceable to the exact server instance that wrote it.
+
+Freshness formula: `exp(-days / 90) × min(1.5, 1+0.05×retrievals) × max(0.5, 1-0.1×corrections)`
+
+When a patch is applied to an existing file: `retrieval_count` is preserved, `correction_count` is incremented by 1, and `freshness` is recomputed.
+
+### Contradiction detection
+
+`memory_propose_update` scans existing vault files for factual contradictions before queuing a patch. When `scope_key` is provided (as it always is during `propose_update`), only files sharing the same top-level folder prefix or overlapping triggers are compared — O(n) instead of O(n²). Conflicting patches are flagged `urgent=True` and held in the review queue with a `conflict_warning` field.
+
+50+ hard-coded contradiction pairs are checked covering: database preference, cloud stance, framework choice, AI provider, language preference, project lifecycle, auth method, mobile platform, encryption setting, git status, and extraction provider.
+
+`memory_conflicts(auto_resolve=True)` performs a full O(n²) vault scan and can automatically deprecate the older of two conflicting files.
+
+### Patch merge modes
+
+`memory_propose_update` supports a `merge` field that controls how new content combines with existing file content:
+
+| `merge` value | Behaviour |
+|---|---|
+| `"replace"` (default) | New content replaces existing body |
+| `"append"` | New content added after existing body |
+| `"prepend"` | New content added before existing body |
+
+Example — add a fact to an existing memory without losing what's there:
+```json
+{"key": "work.stack", "content": "Also uses Rust for CLI tools.", "merge": "append"}
+```
+
+### Pending patch expiry
+
+Pending patches older than `pending_auto_expire_days` (default: 90) are automatically pruned from `_pending.json` every time `load_pending` runs. Set to 0 to disable. Stale patches no longer accumulate silently.
+
+### Cross-model consensus
+When scanning with two providers configured, both outputs are logged to `vault/projects/<slug>/_consensus.json`. Disagreements (Jaccard < 0.4) are flagged. Capped at 500 entries.
+
+---
+
+## Vault internal files
+
+| File | Purpose |
+|---|---|
+| `vault/_index.db` | SQLite FTS5 memories + embedding vectors |
+| `vault/_code_index.db` | Code graph nodes, edges, and code embeddings |
+| `vault/_pending.json` | Pending patch queue |
+| `vault/_rejections.jsonl` | Append-only log of rejected patches |
+| `vault/_weekly.md` | Last weekly report |
+| `vault/_import_resume.json` | Failed import chunks (for `resume_failed=True`) |
+| `vault/metadata/topic_graph.json` | Weighted graph linking chats by topic |
+| `vault/projects/<slug>/_graph.json` | Code graph + file hashes for incremental scans |
+| `vault/projects/<slug>/_consensus.json` | Cross-provider disagreement log |
+
+---
+
+## CLI — terminal pipeline
+
+Install `typer` (`pip install typer`) then run pipeline commands directly from the terminal without MCP:
+
+```bash
+# One-command full pipeline: format → triage → import → rebuild → graph
+python -m server.cli full-import /path/to/claude-export/
+
+# Run just the triage step
+python -m server.cli triage synapse_extracted/conversations_jsonl/ -o synapse_filtered/
+
+# Format a Claude export to JSONL
+python -m server.cli format-claude /path/to/export/ --no-markdown
+
+# Rebuild the FTS5 index (optionally in background)
+python -m server.cli rebuild-index
+python -m server.cli rebuild-index --background
+
+# Check background job progress
+python -m server.cli index-status
+
+# Build the topic graph
+python -m server.cli build-graph --background
+```
+
+---
+
+## Background jobs
+
+`memory_rebuild_index` and `memory_build_graph` both accept `background=True`. When set, they return immediately and run in a daemon thread. Poll `memory_index_status()` for progress (0–100%), current step, and elapsed time.
+
+`memory_finalize_chat` automatically schedules a debounced index rebuild 20 seconds after it runs. Subsequent finalize calls within 20 seconds reset the timer — only one rebuild fires per burst.
+
+`memory_stop_job(name)` cancels a job cooperatively. Empty string cancels all running jobs plus any pending auto-rebuild timer.
+
+---
+
+## Vault watching (Obsidian sync)
+
+`memory_watch_vault(enable=True)` polls `vault/*.md` every 5 seconds for mtime changes (e.g. from Obsidian edits) and auto-schedules an index rebuild when any change is detected. Call `memory_watch_vault(enable=False)` to stop it.
 
 ---
 
 ## Obsidian integration
 
-Open `vault/` as an Obsidian vault. Run `memory_organize_vault()` then `memory_relink_all()` to populate hub index files and wikilinks. Graph view shows a hub-and-spoke structure — one index node per folder, memory files as leaves, cross-links connecting related topics.
+Open `vault/` as an Obsidian vault. Run `memory_organize()` then `memory_relink_all()` to populate hub index files and wikilinks. Graph view shows a hub-and-spoke structure — one index node per folder, memory files as leaves, cross-links connecting related topics.
 
 ---
 
 ## Testing
 
 ```bash
-# Full tool coverage — no API key needed
+# Full tool coverage — 187 checks, no API key needed
 python -X utf8 Diagnostics/test_all_tools.py
+
+# Core unit tests (pytest)
+python -m pytest Diagnostics/test_core.py -q
 
 # Stress test — scale, concurrency, edge cases
 python -X utf8 Diagnostics/stress_test.py
 
 # Code graph quality — scan a 10-file polyglot project end-to-end (requires Gemini key)
 python -X utf8 Diagnostics/test_scan_calc.py
+
+# Validate manifest.json matches registered tools in main.py (no API key needed)
+python Diagnostics/check_manifest.py
+
+# Regenerate manifest.json after adding or removing tools
+python Diagnostics/check_manifest.py --update
+
+# Benchmark: context tokens loaded with Synapse vs cold (no API key needed)
+python Diagnostics/benchmark_with_without.py
+
+# Rate-limit benchmarks (require API keys)
+python Diagnostics/benchmark_groq_limits.py
+python Diagnostics/benchmark_cerebras_limits.py
+
+# Token reduction benchmark on a real vault (requires Gemini key)
+python Diagnostics/benchmark_tokens.py
 ```
+
+---
+
+## Self-update
+
+`updater.py` manages version upgrades without manual git operations:
+
+```bash
+# Check if a newer release is available
+python updater.py --check
+
+# Download and apply the latest release
+python updater.py
+
+# Force update even if already on latest version
+python updater.py --force
+
+# Roll back to the previous version (stored in .backups/)
+python updater.py --rollback
+```
+
+The updater: fetches the latest GitHub release zip → backs up current code to `.backups/` → extracts the release (skipping `vault/`, `config.yaml`, `.env`, `.venv`) → runs `pip install -r requirements.txt` → runs `test_core.py` to verify → rolls back automatically on failure. The `.backups/` folder is excluded from git and never pushed.
 
 ---
 

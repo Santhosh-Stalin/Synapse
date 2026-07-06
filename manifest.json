@@ -1,0 +1,430 @@
+{
+  "tools": [
+    {
+      "name": "memory_apply_all",
+      "params": [
+        "folder",
+        "dry_run"
+      ]
+    },
+    {
+      "name": "memory_apply_update",
+      "params": [
+        "patch_id"
+      ]
+    },
+    {
+      "name": "memory_ask",
+      "params": [
+        "question",
+        "top_k"
+      ]
+    },
+    {
+      "name": "memory_auto",
+      "params": [
+        "task"
+      ]
+    },
+    {
+      "name": "memory_build_graph",
+      "params": [
+        "top_k",
+        "background"
+      ]
+    },
+    {
+      "name": "memory_code_search",
+      "params": [
+        "query",
+        "project",
+        "limit"
+      ]
+    },
+    {
+      "name": "memory_code_stats",
+      "params": [
+        "project"
+      ]
+    },
+    {
+      "name": "memory_commit",
+      "params": [
+        "patch"
+      ]
+    },
+    {
+      "name": "memory_conflicts",
+      "params": [
+        "auto_resolve"
+      ]
+    },
+    {
+      "name": "memory_context",
+      "params": []
+    },
+    {
+      "name": "memory_deduplicate",
+      "params": [
+        "auto_clean"
+      ]
+    },
+    {
+      "name": "memory_deep_search",
+      "params": [
+        "query",
+        "depth",
+        "top_k"
+      ]
+    },
+    {
+      "name": "memory_diff",
+      "params": []
+    },
+    {
+      "name": "memory_export_snapshot",
+      "params": [
+        "output_path"
+      ]
+    },
+    {
+      "name": "memory_finalize_chat",
+      "params": [
+        "chat_id",
+        "summary",
+        "tags"
+      ]
+    },
+    {
+      "name": "memory_fix_frontmatter",
+      "params": [
+        "dry_run"
+      ]
+    },
+    {
+      "name": "memory_format_claude_export",
+      "params": [
+        "export_folder",
+        "output_folder",
+        "write_markdown"
+      ]
+    },
+    {
+      "name": "memory_full_import",
+      "params": [
+        "export_folder",
+        "owner_name",
+        "skip_triage",
+        "background_rebuild"
+      ]
+    },
+    {
+      "name": "memory_get",
+      "params": [
+        "key"
+      ]
+    },
+    {
+      "name": "memory_get_raw",
+      "params": [
+        "chat_id"
+      ]
+    },
+    {
+      "name": "memory_get_raw_chunks",
+      "params": [
+        "chat_id",
+        "query",
+        "top_k",
+        "window"
+      ]
+    },
+    {
+      "name": "memory_health",
+      "params": [
+        "auto_fix"
+      ]
+    },
+    {
+      "name": "memory_history",
+      "params": [
+        "key"
+      ]
+    },
+    {
+      "name": "memory_import_ai_export",
+      "params": [
+        "path",
+        "owner_name",
+        "resume_failed"
+      ]
+    },
+    {
+      "name": "memory_import_filtered_jsonl",
+      "params": [
+        "filtered_jsonl_folder",
+        "blacklist_file",
+        "redflag_file",
+        "owner_name"
+      ]
+    },
+    {
+      "name": "memory_import_synapse_summaries",
+      "params": [
+        "summaries_folder",
+        "owner_name"
+      ]
+    },
+    {
+      "name": "memory_index_status",
+      "params": []
+    },
+    {
+      "name": "memory_ingest_file",
+      "params": [
+        "file_path",
+        "key",
+        "title",
+        "tags"
+      ]
+    },
+    {
+      "name": "memory_ingest_file_content",
+      "params": [
+        "filename",
+        "content",
+        "key",
+        "title",
+        "tags"
+      ]
+    },
+    {
+      "name": "memory_ingest_image_content",
+      "params": [
+        "filename",
+        "description",
+        "key",
+        "title",
+        "tags",
+        "sensitive"
+      ]
+    },
+    {
+      "name": "memory_ingest_image_gemini",
+      "params": [
+        "file_path",
+        "key",
+        "title",
+        "tags"
+      ]
+    },
+    {
+      "name": "memory_ingest_image_save",
+      "params": [
+        "file_path",
+        "markdown",
+        "key",
+        "title",
+        "tags"
+      ]
+    },
+    {
+      "name": "memory_ingest_text",
+      "params": [
+        "text",
+        "label"
+      ]
+    },
+    {
+      "name": "memory_list",
+      "params": [
+        "folder"
+      ]
+    },
+    {
+      "name": "memory_list_files",
+      "params": []
+    },
+    {
+      "name": "memory_multi_search",
+      "params": [
+        "queries",
+        "top_k"
+      ]
+    },
+    {
+      "name": "memory_organize",
+      "params": []
+    },
+    {
+      "name": "memory_preview_image",
+      "params": [
+        "file_path"
+      ]
+    },
+    {
+      "name": "memory_propose_update",
+      "params": [
+        "patch"
+      ]
+    },
+    {
+      "name": "memory_quick_save_chat",
+      "params": [
+        "title",
+        "summary",
+        "key_facts",
+        "decisions"
+      ]
+    },
+    {
+      "name": "memory_read_file",
+      "params": [
+        "file_path"
+      ]
+    },
+    {
+      "name": "memory_rebuild_index",
+      "params": [
+        "background"
+      ]
+    },
+    {
+      "name": "memory_reject_update",
+      "params": [
+        "patch_id",
+        "reason"
+      ]
+    },
+    {
+      "name": "memory_relink_all",
+      "params": []
+    },
+    {
+      "name": "memory_save_chat",
+      "params": [
+        "title",
+        "summary",
+        "key_facts",
+        "decisions",
+        "tags",
+        "keywords",
+        "categories",
+        "chat_id"
+      ]
+    },
+    {
+      "name": "memory_scan_project",
+      "params": [
+        "path",
+        "exclude_dirs",
+        "background"
+      ]
+    },
+    {
+      "name": "memory_search",
+      "params": [
+        "query"
+      ]
+    },
+    {
+      "name": "memory_search_raw",
+      "params": [
+        "query",
+        "top_k"
+      ]
+    },
+    {
+      "name": "memory_session_save",
+      "params": []
+    },
+    {
+      "name": "memory_session_stats",
+      "params": []
+    },
+    {
+      "name": "memory_smart_merge",
+      "params": [
+        "dry_run",
+        "threshold"
+      ]
+    },
+    {
+      "name": "memory_start_chat",
+      "params": [
+        "title",
+        "initial_topic"
+      ]
+    },
+    {
+      "name": "memory_start_watcher",
+      "params": [
+        "path",
+        "exclude_dirs"
+      ]
+    },
+    {
+      "name": "memory_stop_job",
+      "params": [
+        "job_name"
+      ]
+    },
+    {
+      "name": "memory_stop_watcher",
+      "params": []
+    },
+    {
+      "name": "memory_tree",
+      "params": [
+        "confirm"
+      ]
+    },
+    {
+      "name": "memory_triage",
+      "params": [
+        "input_folder",
+        "output_folder",
+        "force_review",
+        "openrouter_model",
+        "groq_model",
+        "workers"
+      ]
+    },
+    {
+      "name": "memory_update_chat",
+      "params": [
+        "chat_id",
+        "key_facts",
+        "decisions",
+        "problems_solved",
+        "technical_details",
+        "references",
+        "next_steps",
+        "timeline",
+        "deep_summary",
+        "tags"
+      ]
+    },
+    {
+      "name": "memory_vault_diff",
+      "params": [
+        "since",
+        "limit"
+      ]
+    },
+    {
+      "name": "memory_watch_vault",
+      "params": [
+        "enable"
+      ]
+    },
+    {
+      "name": "memory_watcher_status",
+      "params": []
+    },
+    {
+      "name": "memory_weekly_report",
+      "params": []
+    }
+  ]
+}

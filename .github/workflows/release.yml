@@ -71,6 +71,7 @@ jobs:
             CONTRIBUTING.md \
             config.example.yaml \
             VERSION \
+            manifest.json \
             --exclude "**/__pycache__/*" \
             --exclude "**/*.pyc" \
             --exclude "**/*.pyo"

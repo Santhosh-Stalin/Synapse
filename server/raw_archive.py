@@ -88,6 +88,26 @@ def _clean_message(msg: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _find_md_path(config: SynapseConfig, entry: dict) -> Path | None:
+    """Locate the markdown file for an index entry via date-prefix glob (index has no markdown_path field)."""
+    created = entry.get("created", "")
+    date_prefix = created[:10] if len(created) >= 10 else ""
+    month = created[:7] if len(created) >= 7 else ""
+    md_root = config.raw_archive_path / "conversations_md"
+    if month:
+        month_dir = md_root / month
+        if date_prefix:
+            candidates = list(month_dir.glob(f"{date_prefix}_*.md")) if month_dir.exists() else []
+        else:
+            candidates = list(month_dir.glob("*.md")) if month_dir.exists() else []
+        if candidates:
+            return candidates[0]
+    if date_prefix:
+        for p in md_root.glob(f"**/{date_prefix}_*.md"):
+            return p
+    return None
+
+
 def _index_path(config: SynapseConfig) -> Path | None:
     if not config.raw_archive_path:
         return None
@@ -216,19 +236,18 @@ def get_raw_conversation(config: SynapseConfig, chat_id: str) -> dict[str, Any]:
     if err:
         return {"error": err}
 
-    md_path = Path(entry["markdown_path"])
-    if not md_path.exists():
-        return {"error": f"Markdown file not found: {md_path}", "metadata": entry}
+    md_path = _find_md_path(config, entry)
+    if not md_path or not md_path.exists():
+        return {"error": f"Markdown file not found for conversation {chat_id}", "metadata": entry}
 
     raw_text = md_path.read_text(encoding="utf-8", errors="replace")
     return {
         "conversation_id": chat_id.removeprefix("chats."),
-        "title": entry["title"],
-        "created": entry["created"],
-        "updated": entry["updated"],
-        "month": entry["month"],
-        "message_count": entry["message_count"],
-        "estimated_tokens": entry["estimated_tokens"],
+        "title": entry.get("title", ""),
+        "created": entry.get("created", ""),
+        "updated": entry.get("updated", ""),
+        "message_count": entry.get("message_count", 0),
+        "estimated_tokens": entry.get("estimated_tokens", 0),
         "content": raw_text,
     }
 
@@ -248,9 +267,9 @@ def get_raw_chunks(
     if err:
         return {"error": err}
 
-    md_path = Path(entry["markdown_path"])
-    if not md_path.exists():
-        return {"error": f"Markdown file not found: {md_path}"}
+    md_path = _find_md_path(config, entry)
+    if not md_path or not md_path.exists():
+        return {"error": f"Markdown file not found for conversation {chat_id}"}
 
     raw_text = md_path.read_text(encoding="utf-8", errors="replace")
     messages = _split_messages(raw_text)
@@ -289,10 +308,9 @@ def search_raw_index(config: SynapseConfig, query: str, top_k: int = 10) -> list
     return [
         {
             "conversation_id": e["conversation_id"],
-            "title": e["title"],
-            "created": e["created"],
-            "month": e["month"],
-            "message_count": e["message_count"],
+            "title": e.get("title", ""),
+            "created": e.get("created", ""),
+            "message_count": e.get("message_count", 0),
             "score": s,
         }
         for s, e in scored[:top_k]

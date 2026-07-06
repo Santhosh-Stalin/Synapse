@@ -4,7 +4,7 @@ import difflib
 import json
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -289,19 +289,41 @@ def propose_update(config: SynapseConfig, patch: dict[str, Any]) -> dict[str, An
         "reason": patch.get("reason", ""),
         "sensitivity": sensitivity,
         "urgent": sensitivity == "high" or bool(patch.get("urgent", False)),
+        "session_id": patch.get("session_id", ""),
+        "trigger_reason": patch.get("trigger_reason", patch.get("reason", "")),
         "before": before_text,
         "after": after_text,
         "diff": _diff(before_text, after_text, key),
         "status": "pending",
     }
+    conflicts = detect_conflicts(config, after_patch=item, scope_key=key)
+    if conflicts:
+        item["urgent"] = True
+        item["conflict_warning"] = conflicts
+
     queue = load_pending(config)
     queue.append(item)
     save_pending(config, queue)
     return {
         "patch_id": patch_id,
         "diff": item["diff"],
-        "conflicts": detect_conflicts(config, after_patch=item),
+        "conflicts": conflicts,
     }
+
+
+def _compute_freshness(fm: dict[str, Any]) -> float:
+    """Freshness in [0, 1]: decays with age, boosted by retrieval, penalised by corrections."""
+    import math
+    from datetime import date as _date
+    try:
+        last_used = str(fm.get("last_used") or fm.get("last_updated") or _date.today().isoformat())
+        days = (_date.today() - _date.fromisoformat(last_used)).days
+    except (ValueError, TypeError):
+        days = 0
+    base = math.exp(-days / 90)  # half-life ~62 days
+    retrieval_boost = min(1.5, 1.0 + 0.05 * int(fm.get("retrieval_count", 0)))
+    correction_penalty = max(0.5, 1.0 - 0.1 * int(fm.get("correction_count", 0)))
+    return round(min(1.0, base * retrieval_boost * correction_penalty), 4)
 
 
 def apply_update(config: SynapseConfig, patch_id: str) -> dict[str, Any]:
@@ -312,7 +334,19 @@ def apply_update(config: SynapseConfig, patch_id: str) -> dict[str, Any]:
 
     path = key_to_path(config.vault_path, item["key"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_text(config, path, item["after"])
+
+    # Preserve correction_count and retrieval_count from existing file
+    after_text = item["after"]
+    if path.exists():
+        existing_fm, _ = read_memory_file(path)
+        after_fm, after_content = parse_memory_text(after_text)
+        after_fm = dict(after_fm)
+        after_fm["retrieval_count"] = int(existing_fm.get("retrieval_count", 0))
+        after_fm["correction_count"] = int(existing_fm.get("correction_count", 0)) + 1
+        after_fm["freshness"] = _compute_freshness(after_fm)
+        after_text = render_memory_file(after_fm, after_content)
+
+    write_text(config, path, after_text)
     index = MemoryIndex(config.vault_path, lambda candidate: read_text(config, candidate))
     index.upsert_file(path)
     _refresh_related(config, path, index)
@@ -360,6 +394,9 @@ def list_pending(config: SynapseConfig) -> list[dict[str, Any]]:
             "reason": item["reason"],
             "sensitivity": item["sensitivity"],
             "urgent": item["urgent"],
+            "session_id": item.get("session_id", ""),
+            "trigger_reason": item.get("trigger_reason", ""),
+            "conflict_warning": item.get("conflict_warning", []),
             "diff": item["diff"],
         }
         for item in load_pending(config)
@@ -367,21 +404,26 @@ def list_pending(config: SynapseConfig) -> list[dict[str, Any]]:
 
 
 def detect_conflicts(
-    config: SynapseConfig, after_patch: dict[str, Any] | None = None
+    config: SynapseConfig,
+    after_patch: dict[str, Any] | None = None,
+    scope_key: str = "",
 ) -> list[dict[str, str]]:
     """
     Scan active vault files for factual contradictions.
-    Intentionally excludes chats/ — chat summaries are narrative and will
-    always contain words like 'never'/'always' in different contexts, causing
-    O(n²) false positives across thousands of files.
+
+    When scope_key is given (e.g. during propose_update), only files that share
+    the same top-level folder prefix OR have overlapping triggers are compared —
+    keeping O(n) instead of O(n²) and minimising false positives.
+
+    Excludes chats/ and raw/ — narrative text generates too many false positives.
     """
     EXCLUDED_FOLDERS = {"chats", "raw"}
-    memories: list[dict[str, str]] = []
+    memories: list[dict[str, Any]] = []
+
+    # Collect all candidate files
     for path in sorted(config.vault_path.rglob("*.md")):
-        # Skip index/system files
         if path.name.startswith("_"):
             continue
-        # Skip chat archive and raw folders
         parts = path.relative_to(config.vault_path).parts
         if any(p in EXCLUDED_FOLDERS for p in parts):
             continue
@@ -389,20 +431,40 @@ def detect_conflicts(
         key = str(fm.get("key", ""))
         if not key:
             continue
-        memories.append({"key": key, "content": content.lower()})
+        memories.append({
+            "key": key,
+            "content": content.lower(),
+            "prefix": key.split(".")[0] if "." in key else key,
+            "triggers": set(fm.get("triggers", [])),
+        })
 
     if after_patch:
         fm, content = _parse_rendered(after_patch["after"])
-        memories.append({"key": str(fm.get("key", after_patch["key"])), "content": content.lower()})
+        patch_key = str(fm.get("key", after_patch["key"]))
+        memories.append({
+            "key": patch_key,
+            "content": content.lower(),
+            "prefix": patch_key.split(".")[0] if "." in patch_key else patch_key,
+            "triggers": set(fm.get("triggers", [])),
+        })
+
+    # When scoped, only compare the incoming patch against same-topic files
+    if scope_key and after_patch:
+        incoming = memories[-1]
+        candidates = [
+            m for m in memories[:-1]
+            if m["prefix"] == incoming["prefix"] or (m["triggers"] & incoming["triggers"])
+        ]
+        pairs = [(incoming, c) for c in candidates]
+    else:
+        # Full O(n²) scan (used by memory_conflicts MCP tool)
+        pairs = [(memories[i], memories[j]) for i in range(len(memories)) for j in range(i + 1, len(memories))]
 
     conflicts: list[dict[str, str]] = []
-    for i, left in enumerate(memories):
-        for right in memories[i + 1 :]:
-            explanation = _conflict_explanation(left["content"], right["content"])
-            if explanation:
-                conflicts.append(
-                    {"left": left["key"], "right": right["key"], "explanation": explanation}
-                )
+    for left, right in pairs:
+        explanation = _conflict_explanation(left["content"], right["content"])
+        if explanation:
+            conflicts.append({"left": left["key"], "right": right["key"], "explanation": explanation})
     return conflicts
 
 
@@ -412,10 +474,6 @@ def cleanup_stale_nodes(
     """
     Remove vault nodes that no longer exist in the current code graph.
     Only touches files that were actually scanned — leaves unscanned files alone.
-    Three cases handled:
-      1. Function node whose parent file was scanned but function no longer exists
-      2. Empty function-node directory left after all children removed
-      3. File-level node whose source file no longer exists on disk
     """
     project_dir = config.vault_path / "projects" / project_slug
     if not project_dir.exists():
@@ -423,9 +481,8 @@ def cleanup_stale_nodes(
 
     project_key = f"projects.{project_slug}"
 
-    # Build expected state from graph
     scanned_file_ids: set[str] = set()
-    expected_fn_slugs: dict[str, set[str]] = {}  # file_id -> {fn_slug, ...}
+    expected_fn_slugs: dict[str, set[str]] = {}
 
     for node in graph.get("nodes", []):
         ntype = node.get("type")
@@ -440,7 +497,6 @@ def cleanup_stale_nodes(
 
     removed: list[str] = []
 
-    # Case 1 & 2: stale function nodes within scanned file directories
     for file_id in scanned_file_ids:
         fn_dir = project_dir / file_id
         if not fn_dir.is_dir():
@@ -452,13 +508,8 @@ def cleanup_stale_nodes(
             if md.stem not in expected:
                 md.unlink()
                 removed.append(f"{project_key}.{file_id}.{md.stem}")
-        # Remove directory if now empty
         if fn_dir.is_dir() and not any(fn_dir.iterdir()):
             fn_dir.rmdir()
-
-    # Note: file-level node deletion (when a source file is removed from disk) is
-    # intentionally NOT done here — the scanner only reads a budget-limited subset
-    # of files, so absence from the current graph does not mean the file was deleted.
 
     if removed:
         MemoryIndex(config.vault_path, lambda p: read_text(config, p)).rebuild()
@@ -484,14 +535,27 @@ def load_pending(config: SynapseConfig) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     try:
-        raw = json.loads(path.read_text(encoding="utf-8").strip() or "[]")
+        queue = json.loads(path.read_text(encoding="utf-8").strip() or "[]")
     except json.JSONDecodeError:
         return []
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=config.pending_auto_expire_days)).isoformat()
-    live = [p for p in raw if p.get("created_at", "9999") >= cutoff]
-    if len(live) < len(raw):
-        save_pending(config, live)
-    return live
+    expire_days = int(getattr(config, "pending_auto_expire_days", 90) or 90)
+    if expire_days > 0:
+        cutoff = datetime.now(timezone.utc).timestamp() - expire_days * 86400
+        pruned = []
+        changed = False
+        for item in queue:
+            try:
+                ts = datetime.fromisoformat(item["created_at"]).timestamp()
+            except (KeyError, ValueError):
+                ts = cutoff + 1  # keep items with bad timestamps
+            if ts >= cutoff:
+                pruned.append(item)
+            else:
+                changed = True
+        if changed:
+            save_pending(config, pruned)
+            return pruned
+    return queue
 
 
 def save_pending(config: SynapseConfig, queue: list[dict[str, Any]]) -> None:
@@ -507,20 +571,18 @@ def _build_after_text(config: SynapseConfig, patch: dict[str, Any]) -> str:
         frontmatter, existing_content = read_memory_file(path)
         frontmatter = dict(frontmatter)
         frontmatter.update(patch.get("frontmatter", {}))
-        # Top-level 'related' in the patch overrides the stored one so that
-        # code-graph call edges and scanner-provided links are not lost on updates.
         if patch.get("related"):
             frontmatter["related"] = list(patch["related"])
         frontmatter["version"] = int(frontmatter.get("version", 0)) + 1
         frontmatter["last_updated"] = datetime.now().date().isoformat()
-        new_content = str(patch.get("content", "")).strip()
-        merge = str(patch.get("merge", "replace")).lower()
-        if merge == "append" and new_content:
-            content = existing_content.rstrip() + "\n\n" + new_content
-        elif merge == "prepend" and new_content:
-            content = new_content + "\n\n" + existing_content.lstrip()
+        new_content = str(patch.get("content", existing_content)).strip()
+        merge_mode = str(patch.get("merge", "replace")).lower()
+        if merge_mode == "append":
+            content = f"{existing_content.strip()}\n\n{new_content}" if existing_content.strip() else new_content
+        elif merge_mode == "prepend":
+            content = f"{new_content}\n\n{existing_content.strip()}" if existing_content.strip() else new_content
         else:
-            content = new_content if new_content else existing_content
+            content = new_content
     else:
         frontmatter = new_frontmatter(
             key,
@@ -533,7 +595,10 @@ def _build_after_text(config: SynapseConfig, patch: dict[str, Any]) -> str:
         )
         frontmatter.update(patch.get("frontmatter", {}))
         content = str(patch.get("content", "")).strip()
-        # merge modes only apply to existing files; for new files always use content as-is
+    # Inject provenance into frontmatter
+    session_id = patch.get("session_id", "")
+    if session_id:
+        frontmatter["source_session"] = session_id
     _GENERIC_REASONS = {
         "High-signal memory moment.",
         "Approved memory update.",
@@ -542,11 +607,9 @@ def _build_after_text(config: SynapseConfig, patch: dict[str, Any]) -> str:
     }
     history = str(patch.get("history") or patch.get("reason") or "")
     if history and history not in _GENERIC_REASONS:
-        content = ensure_history_entry(content, history)
-    # Auto-extract triggers when not supplied
+        content = ensure_history_entry(content, history, session_id=session_id)
     if not frontmatter.get("triggers"):
         frontmatter["triggers"] = _extract_triggers(content)
-    # Normalize any related paths to dot-notation
     frontmatter["related"] = [r.replace("/", ".") for r in frontmatter.get("related", [])]
     return render_memory_file(frontmatter, content)
 
@@ -600,37 +663,86 @@ def _parse_rendered(text: str) -> tuple[dict[str, Any], str]:
     return parse_memory_text(text)
 
 
+_CONFLICT_PAIRS: list[tuple[str, str]] = [
+    # Database / storage
+    ("prefer firebase", "prefer postgresql"),
+    ("prefer firebase", "prefer supabase"),
+    ("prefer firebase", "prefer sqlite"),
+    ("prefer firebase", "prefer mongodb"),
+    ("uses firebase", "uses postgresql"),
+    ("uses firebase", "uses supabase"),
+    ("uses firebase", "uses sqlite"),
+    ("prefer postgresql", "prefer mongodb"),
+    ("prefer postgresql", "prefer sqlite"),
+    ("prefer supabase", "prefer sqlite"),
+    # Cloud stance
+    ("no cloud", "cloud enabled"),
+    ("local-first", "cloud-first"),
+    ("self-hosted", "cloud-hosted"),
+    ("offline-first", "always-online"),
+    # Framework
+    ("react native", "flutter"),
+    ("uses react", "uses vue"),
+    ("uses react", "uses svelte"),
+    ("uses react", "uses angular"),
+    ("uses vue", "uses svelte"),
+    ("uses nextjs", "uses nuxt"),
+    ("prefers typescript", "prefers javascript"),
+    ("uses tailwind", "uses bootstrap"),
+    ("uses tailwind", "uses material ui"),
+    # AI / provider
+    ("uses openai", "uses anthropic"),
+    ("uses gemini", "uses openai"),
+    ("uses cerebras", "uses openai"),
+    ("prefer openai", "prefer anthropic"),
+    ("prefer gemini", "prefer openai"),
+    # Write modes
+    ("write_mode: auto", "write_mode: manual"),
+    ("write_mode: auto", "write_mode: review"),
+    ("write_mode: manual", "write_mode: review"),
+    # Language
+    ("prefers python", "prefers go"),
+    ("prefers python", "prefers rust"),
+    ("prefers python", "prefers typescript"),
+    ("prefers go", "prefers rust"),
+    ("prefers go", "prefers typescript"),
+    # Lifecycle / status
+    ("project: active", "project: abandoned"),
+    ("project: active", "project: archived"),
+    ("project: abandoned", "project: archived"),
+    # Auth
+    ("uses jwt", "uses session cookies"),
+    ("uses oauth", "uses api keys"),
+    # Mobile
+    ("ios only", "android only"),
+    ("ios only", "cross-platform"),
+    ("android only", "cross-platform"),
+    # Encryption
+    ("encryption: true", "encryption: false"),
+    ("encryption enabled", "encryption disabled"),
+    # Git
+    ("git enabled", "git disabled"),
+    ("git_enabled: true", "git_enabled: false"),
+    # Extraction provider
+    ("extraction_provider: cerebras", "extraction_provider: gemini"),
+    ("extraction_provider: cerebras", "extraction_provider: groq"),
+    ("extraction_provider: gemini", "extraction_provider: groq"),
+]
+
+
 def _conflict_explanation(left: str, right: str) -> str:
     """
     Check for factual contradictions between two active vault files.
-    Rules:
-    - Only meaningful technology/preference pairs (not generic words like never/always)
-    - Both terms must appear on the same line as a keyword anchor so we're comparing
-      facts about the same topic, not unrelated sentences
+    Both terms must appear to match — no generic negation heuristics.
     """
-    pairs = [
-        ("prefer firebase", "prefer postgresql"),
-        ("prefer firebase", "prefer supabase"),
-        ("uses firebase", "uses postgresql"),
-        ("uses firebase", "uses supabase"),
-        ("no cloud", "cloud enabled"),
-        ("local-first", "cloud-first"),
-        ("react native", "flutter"),
-        ("write_mode: auto", "write_mode: review"),
-    ]
-
     def lines_containing(text: str, term: str) -> list[str]:
         return [ln for ln in text.splitlines() if term in ln]
 
-    for a, b in pairs:
-        a_lines = lines_containing(left, a)
-        b_lines = lines_containing(right, b)
-        if a_lines and b_lines:
-            return f"Potential contradiction: '{a}' vs '{b}'."
-        a_lines = lines_containing(left, b)
-        b_lines = lines_containing(right, a)
-        if a_lines and b_lines:
-            return f"Potential contradiction: '{b}' vs '{a}'."
+    for a, b in _CONFLICT_PAIRS:
+        if lines_containing(left, a) and lines_containing(right, b):
+            return f"Contradiction: '{a}' vs '{b}'."
+        if lines_containing(left, b) and lines_containing(right, a):
+            return f"Contradiction: '{b}' vs '{a}'."
     return ""
 
 

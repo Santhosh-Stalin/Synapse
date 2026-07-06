@@ -11,8 +11,11 @@ from __future__ import annotations
 import re
 import threading
 import time
+import uuid as _uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+_WATCHER_SESSION_ID: str = _uuid.uuid4().hex
 
 if TYPE_CHECKING:
     from .config import SynapseConfig
@@ -240,6 +243,7 @@ def _worker(state: _WatchState) -> None:
                 content = full_path.read_text(encoding="utf-8", errors="ignore")[:12000]
                 patch = _ai_extract_file_fast(state.config, state.project_name, rel_path, content)
                 if patch:
+                    patch.setdefault("session_id", _WATCHER_SESSION_ID)
                     result = propose_update(state.config, patch)
                     apply_update(state.config, result["patch_id"])
 

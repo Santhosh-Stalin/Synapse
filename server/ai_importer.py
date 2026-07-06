@@ -9,9 +9,12 @@ Goal: reconstruct a rich personal knowledge dossier from conversation history an
 from __future__ import annotations
 
 import json
+import uuid as _uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+_IMPORTER_SESSION_ID: str = _uuid.uuid4().hex
 
 if TYPE_CHECKING:
     from .config import SynapseConfig
@@ -900,6 +903,10 @@ def import_synapse_summaries(
             f'title: "{title.replace(chr(34), chr(39))}"\n'
             f"categories: [{cats_yaml}]\n"
             f"tags: [{tags_yaml}]\n"
+            f"source_session: {_IMPORTER_SESSION_ID}\n"
+            f"last_updated: '{__import__('datetime').date.today().isoformat()}'\n"
+            f"retrieval_count: 0\n"
+            f"correction_count: 0\n"
             f"---\n"
         )
 
@@ -1087,6 +1094,10 @@ def save_chat_memory(
         f"title: {title}\n"
         f"created: {today}\n"
         f"source: claude_session\n"
+        f"source_session: {_IMPORTER_SESSION_ID}\n"
+        f"last_updated: '{today}'\n"
+        f"retrieval_count: 0\n"
+        f"correction_count: 0\n"
         f"categories:\n{cats_yaml}\n"
         f"tags:\n{tags_yaml}\n"
         f"related: []\n"

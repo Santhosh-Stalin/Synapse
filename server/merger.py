@@ -13,8 +13,11 @@ as long as they talk about the same topic semantically.
 from __future__ import annotations
 
 import re
+import uuid as _uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+_MERGER_SESSION_ID: str = _uuid.uuid4().hex
 
 if TYPE_CHECKING:
     from .config import SynapseConfig
@@ -287,6 +290,7 @@ def smart_merge_duplicates(
         }
 
         try:
+            patch.setdefault("session_id", _MERGER_SESSION_ID)
             proposal = propose_update(config, patch)
             result = apply_update(config, proposal["patch_id"])
 
