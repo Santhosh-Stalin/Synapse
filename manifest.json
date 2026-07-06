@@ -374,6 +374,12 @@
       "params": []
     },
     {
+      "name": "memory_timeline",
+      "params": [
+        "key"
+      ]
+    },
+    {
       "name": "memory_tree",
       "params": [
         "confirm"

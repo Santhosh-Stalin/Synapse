@@ -394,6 +394,7 @@ Related: [[work/python]] | [[projects/ctf_entrypoint]]
 | `memory_search(query)` | 200–900 | FTS5 + semantic search over active vault |
 | `memory_get(key)` | 200–500 | Full content of one memory file |
 | `memory_history(key)` | ~200 | Full write history: timestamps, session IDs, freshness score, retrieval/correction counts |
+| `memory_timeline(key)` | ~300 | Intellectual history rendered as a markdown timeline — every edit, freshness bar, version trail, git commits if enabled |
 | `memory_list(folder)` | 50–200 | Keys in a vault folder |
 | `memory_multi_search(queries)` | 600–2,700 | Fan-out parallel search, merged by relevance |
 | `memory_deep_search(query)` | 1,000–2,000 | Graph-guided search over chat archive |
@@ -623,6 +624,46 @@ Example — add a fact to an existing memory without losing what's there:
 ### Pending patch expiry
 
 Pending patches older than `pending_auto_expire_days` (default: 90) are automatically pruned from `_pending.json` every time `load_pending` runs. Set to 0 to disable. Stale patches no longer accumulate silently.
+
+### Intellectual history view
+
+`memory_timeline(key)` renders a memory's full evolution as a formatted markdown document — useful for understanding how a belief or piece of knowledge changed over time:
+
+```
+# Timeline: `work.stack`
+
+## Current state
+
+| Field        | Value                    |
+|---|---|
+| Version      | 4                        |
+| Last updated | 2026-07-06               |
+| Source session | `5b246d3d`…            |
+| Freshness    | `████████░░` 0.82        |
+| Retrievals   | 12                       |
+| Corrections  | 1                        |
+
+## Edit history
+
+### 1. 2026-06-01  `[sess:a1c3e9f2]`
+> Initial import from ChatGPT export
+
+### 2. 2026-06-14  `[sess:3d72d1fc]`
+> Added Rust — confirmed via project scan
+
+### 3. 2026-07-06  `[sess:5b246d3d]`
+> Corrected extraction provider from gemini to cerebras
+
+## Git commits
+
+a1c3e9f work.stack: initial import
+3d72d1f work.stack: added Rust
+5b246d3d work.stack: corrected provider
+```
+
+The freshness bar (`█░`) gives an instant read on how stale the memory is. Git commits are appended automatically when `git_enabled: true`.
+
+`memory_history(key)` returns the same data as structured JSON if you need to process it programmatically.
 
 ### Cross-model consensus
 

@@ -49,6 +49,7 @@ from .functions import (
     memory_diff,
     memory_get,
     memory_history,
+    memory_timeline,
     memory_import_ai_export,
     memory_import_filtered_jsonl,
     memory_import_synapse_summaries,
@@ -151,6 +152,12 @@ def get(key: str) -> dict:
 def history(key: str) -> dict:
     """Returns the full structured write history of a memory key: all events with timestamps, session IDs, freshness score, and retrieval/correction counts."""
     return memory_history(config, key)
+
+
+@app.tool(name="memory_timeline")
+def timeline(key: str) -> dict:
+    """Renders the intellectual history of a memory key as a formatted markdown timeline — every edit with date, session ID, and description, plus freshness bar, version, retrieval/correction counts, and git commit log if enabled."""
+    return memory_timeline(config, key)
 
 
 @app.tool(name="memory_search")

@@ -1672,6 +1672,84 @@ def memory_history(config: SynapseConfig, key: str) -> dict[str, Any]:
     }
 
 
+def memory_timeline(config: SynapseConfig, key: str) -> dict[str, Any]:
+    """Render the intellectual history of a memory key as a formatted markdown timeline.
+
+    Shows every recorded edit with date, session ID, and description, plus current
+    health stats (freshness, version, retrieval/correction counts). If git is enabled,
+    appends the commit log for the file.
+    """
+    import subprocess
+    from .memory_file import parse_history
+    from .diff import _compute_freshness
+
+    vault = config.vault_path
+    _ensure_vault_path(vault)
+    file_path = key_to_path(vault, key)
+    if not file_path.exists():
+        raise ValueError(f"Memory key not found: {key}")
+
+    frontmatter, content = parse_memory_text(read_text(config, file_path))
+    entries = parse_history(content)
+    freshness = _compute_freshness(frontmatter)
+    version = int(frontmatter.get("version", 1))
+    retrievals = int(frontmatter.get("retrieval_count", 0))
+    corrections = int(frontmatter.get("correction_count", 0))
+    last_updated = str(frontmatter.get("last_updated", ""))
+    source_session = str(frontmatter.get("source_session", ""))
+
+    filled = round(freshness * 10)
+    bar = "█" * filled + "░" * (10 - filled)
+
+    lines: list[str] = [
+        f"# Timeline: `{key}`",
+        "",
+        "## Current state",
+        "",
+        "| Field | Value |",
+        "|---|---|",
+        f"| Version | {version} |",
+        f"| Last updated | {last_updated} |",
+        f"| Source session | `{source_session[:8]}`{'…' if source_session else ''} |",
+        f"| Freshness | `{bar}` {freshness:.2f} |",
+        f"| Retrievals | {retrievals} |",
+        f"| Corrections | {corrections} |",
+        "",
+    ]
+
+    if entries:
+        lines += ["## Edit history", ""]
+        for i, entry in enumerate(entries, 1):
+            sess = f"`[sess:{entry['session_id'][:8]}]`" if entry["session_id"] else ""
+            lines.append(f"### {i}. {entry['date']}  {sess}")
+            lines.append(f"> {entry['text']}")
+            lines.append("")
+    else:
+        lines += ["## Edit history", "", "_No history entries recorded yet._", ""]
+
+    if getattr(config, "git_enabled", False):
+        try:
+            result = subprocess.run(
+                ["git", "log", "--oneline", "--follow", "--", str(file_path)],
+                capture_output=True, text=True, cwd=str(file_path.parent),
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                lines += ["## Git commits", "", "```", result.stdout.strip()[:2000], "```", ""]
+        except Exception:
+            pass
+
+    return {
+        "key": key,
+        "version": version,
+        "freshness": freshness,
+        "history_count": len(entries),
+        "corrections": corrections,
+        "retrievals": retrievals,
+        "timeline": "\n".join(lines),
+    }
+
+
 def _ensure_vault_path(vault: Path) -> None:
     if not vault.exists():
         raise ValueError(f"Vault path does not exist: {vault}")
