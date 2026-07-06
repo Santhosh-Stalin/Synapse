@@ -625,7 +625,31 @@ Example — add a fact to an existing memory without losing what's there:
 Pending patches older than `pending_auto_expire_days` (default: 90) are automatically pruned from `_pending.json` every time `load_pending` runs. Set to 0 to disable. Stale patches no longer accumulate silently.
 
 ### Cross-model consensus
-When scanning with two providers configured, both outputs are logged to `vault/projects/<slug>/_consensus.json`. Disagreements (Jaccard < 0.4) are flagged. Capped at 500 entries.
+
+During incremental watcher scans, if a second provider key is available alongside the primary `extraction_provider`, both providers extract the file independently. Their outputs are compared using word-level Jaccard similarity:
+
+- **Agreed (Jaccard ≥ 0.4):** logged silently — both providers converged.
+- **Disagreed (Jaccard < 0.4):** the patch is flagged with a `consensus_flag` field, and both output snippets are stored for inspection.
+
+All entries are written to `vault/projects/<slug>/_consensus.json` (capped at 500 entries, newest kept).
+
+**Which provider acts as secondary:** Cerebras is preferred (if key present and primary isn't Cerebras), then Groq. If only one provider key is configured, consensus is skipped.
+
+Example `_consensus.json` entry:
+```json
+{
+  "ts": "2026-07-06T14:22:11+00:00",
+  "file": "server/diff.py",
+  "primary": "gemini",
+  "secondary": "cerebras",
+  "jaccard": 0.31,
+  "agreed": false,
+  "primary_snippet": "...",
+  "secondary_snippet": "..."
+}
+```
+
+This surfaces extraction disagreements as data rather than silently discarding one result — letting you spot files where the LLM is uncertain about the right memory structure.
 
 ---
 

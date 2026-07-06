@@ -291,6 +291,57 @@ def _dispatch_complete(config: "SynapseConfig", system: str, user: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Cross-model consensus helpers
+# ---------------------------------------------------------------------------
+
+
+def _secondary_provider_name(config: "SynapseConfig") -> str:
+    """Return name of a second available provider, or '' if only one is configured."""
+    primary = getattr(config, "extraction_provider", "gemini").lower()
+    if primary != "cerebras" and getattr(config, "cerebras_api_key", ""):
+        return "cerebras"
+    if primary != "groq" and getattr(config, "groq_api_key", ""):
+        return "groq"
+    return ""
+
+
+def _secondary_complete(config: "SynapseConfig", system: str, user: str) -> str | None:
+    """Call a second provider for consensus checking. Returns None if unavailable."""
+    name = _secondary_provider_name(config)
+    if name == "cerebras":
+        return _cerebras_complete(config, system, user)
+    if name == "groq":
+        return _groq_complete(config, system, user)
+    return None
+
+
+def _jaccard(a: str, b: str) -> float:
+    """Word-level Jaccard similarity between two strings."""
+    def _tokens(s: str) -> set[str]:
+        return set(re.findall(r"\b[a-z][a-z0-9_]{2,}\b", s.lower()))
+    ta, tb = _tokens(a), _tokens(b)
+    if not ta and not tb:
+        return 1.0
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def _log_consensus(vault_path: Path, project_slug: str, entry: dict[str, Any]) -> None:
+    """Append to per-project consensus log, capped at 500 entries."""
+    log_path = vault_path / "projects" / project_slug / "_consensus.json"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        existing: list[dict[str, Any]] = json.loads(log_path.read_text(encoding="utf-8")) if log_path.exists() else []
+    except (json.JSONDecodeError, OSError):
+        existing = []
+    existing.append(entry)
+    if len(existing) > 500:
+        existing = existing[-500:]
+    log_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
 # Incremental hash tracking
 # ---------------------------------------------------------------------------
 
@@ -661,8 +712,55 @@ def _ai_extract_file(
 def _ai_extract_file_fast(
     config: "SynapseConfig", project_name: str, rel_path: str, content: str
 ) -> dict[str, Any] | None:
-    """Fast single-patch extraction for the incremental watcher."""
-    return _ai_extract_file(config, project_name, rel_path, content)
+    """Fast single-patch extraction for the incremental watcher.
+
+    When a second provider key is available, both outputs are compared
+    via Jaccard similarity. Disagreements (< 0.4) are logged to
+    vault/projects/<slug>/_consensus.json and flagged on the patch.
+    """
+    from datetime import datetime, timezone
+
+    ext = Path(rel_path).suffix.lower()
+    prompt = _DATA_SYSTEM_PROMPT if ext in DATA_EXTENSIONS else _FILE_SYSTEM_PROMPT
+    user_msg = f"Project: {project_name}\nFile: {rel_path}\n\n```\n{content}\n```"
+
+    try:
+        primary_raw = _dispatch_complete(config, prompt, user_msg)
+    except Exception:
+        return None
+
+    patch = _parse_patch(primary_raw) if primary_raw else None
+
+    # Cross-model consensus — best-effort, never blocks the primary result
+    if primary_raw:
+        try:
+            secondary_raw = _secondary_complete(config, prompt, user_msg)
+            if secondary_raw is not None:
+                jaccard = _jaccard(primary_raw, secondary_raw)
+                primary_p = getattr(config, "extraction_provider", "gemini").lower()
+                secondary_p = _secondary_provider_name(config)
+                project_slug = re.sub(r"[^a-z0-9-]", "", re.sub(r"[_\s]+", "-", project_name.lower())).strip("-")
+                entry: dict[str, Any] = {
+                    "ts": datetime.now(tz=timezone.utc).isoformat(),
+                    "file": rel_path,
+                    "primary": primary_p,
+                    "secondary": secondary_p,
+                    "jaccard": round(jaccard, 3),
+                    "agreed": jaccard >= 0.4,
+                }
+                if jaccard < 0.4:
+                    entry["primary_snippet"] = primary_raw[:300]
+                    entry["secondary_snippet"] = secondary_raw[:300]
+                    if patch:
+                        patch["consensus_flag"] = (
+                            f"Provider disagreement: Jaccard={jaccard:.2f} "
+                            f"({primary_p} vs {secondary_p})"
+                        )
+                _log_consensus(config.vault_path, project_slug, entry)
+        except Exception:
+            pass
+
+    return patch
 
 
 # ---------------------------------------------------------------------------
